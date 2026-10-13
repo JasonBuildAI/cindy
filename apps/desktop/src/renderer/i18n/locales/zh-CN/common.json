@@ -14416,6 +14416,7 @@
     "pluginAgentInvoked": "Agent 自动调用",
     "pluginNoCommand": "不可直接使用",
     "sectionTitle": "目录",
+    "libraryReadOnlyLabel": "Mivo 作品库（只读）",
     "empty": "还没有引用目录",
     "add": "添加目录…",
     "addReadOnly": "添加只读目录…",

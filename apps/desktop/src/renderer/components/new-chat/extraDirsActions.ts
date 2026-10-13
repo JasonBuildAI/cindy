@@ -22,10 +22,6 @@ export function isLibraryExtraDirSlot(dir: string): boolean {
   return dir.startsWith(LIBRARY_EXTRA_DIR_SLOT_PREFIX);
 }
 
-export function extraDirDisplayLabel(dir: string): string {
-  return isLibraryExtraDirSlot(dir) ? 'Mivo 作品库（只读）' : extraDirBasename(dir);
-}
-
 export function partitionExtraDirs(dirs: readonly string[]): {
   system: string[];
   user: string[];

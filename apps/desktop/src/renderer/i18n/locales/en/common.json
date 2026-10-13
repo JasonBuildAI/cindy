@@ -14470,6 +14470,7 @@
     "pluginAgentInvoked": "Used automatically by Agent",
     "pluginNoCommand": "Not available here",
     "sectionTitle": "Directories",
+    "libraryReadOnlyLabel": "Mivo library (read-only)",
     "empty": "No reference directories yet",
     "add": "Add directory…",
     "addReadOnly": "Add read-only directory…",

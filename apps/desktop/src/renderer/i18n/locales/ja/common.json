@@ -14416,6 +14416,7 @@
     "pluginAgentInvoked": "Agent が自動で使用",
     "pluginNoCommand": "ここでは使用できません",
     "sectionTitle": "ディレクトリ",
+    "libraryReadOnlyLabel": "Mivo ライブラリ（読み取り専用）",
     "empty": "参照ディレクトリはまだありません",
     "add": "ディレクトリを追加…",
     "addReadOnly": "読み取り専用ディレクトリを追加…",

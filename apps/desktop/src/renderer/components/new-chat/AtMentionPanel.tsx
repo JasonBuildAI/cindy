@@ -63,7 +63,7 @@ import {
   type ComposerSuggestionAction,
   type ComposerSuggestionEntry,
 } from '@/lib/composerSuggestion';
-import { extraDirBasename, extraDirDisplayLabel, isLibraryExtraDirSlot } from './extraDirsActions';
+import { extraDirBasename, isLibraryExtraDirSlot } from './extraDirsActions';
 
 const TOOLTIP_FALLBACK_H = 120;
 const VIEWPORT_PAD = 8;
@@ -177,6 +177,8 @@ export function AtMentionPanel({
   const directoryRows = [referenceDirs, writableDirs].flatMap((section) =>
     section ? section.dirs.map((path) => ({ path, onRemove: section.onRemove })) : [],
   );
+  // library 系统槽的行文案跟随界面语言(issue #5929),不走「取目录名」的 basename 路径。
+  const libraryReadOnlyLabel = t('extraDirs.libraryReadOnlyLabel');
   const addSectionVisible = isEmptyRootQuery && addEntries.length > 0;
   const pluginSectionVisible = isEmptyRootQuery && pluginEntries.length > 0;
   const directoriesVisible = isEmptyRootQuery && (directoryRows.length > 0 || !!addDirEntry);
@@ -571,12 +573,12 @@ export function AtMentionPanel({
                               className="shrink-0 text-[var(--cmd-palette-item-icon)] opacity-60"
                             />
                             <Tip
-                              text={isLibraryExtraDirSlot(p) ? extraDirDisplayLabel(p) : p}
+                              text={isLibraryExtraDirSlot(p) ? libraryReadOnlyLabel : p}
                               mono={!isLibraryExtraDirSlot(p)}
                               side="top"
                             >
                               <span className="min-w-0 flex-1 truncate text-left">
-                                {extraDirDisplayLabel(p)}
+                                {isLibraryExtraDirSlot(p) ? libraryReadOnlyLabel : extraDirBasename(p)}
                               </span>
                             </Tip>
                             {isLibraryExtraDirSlot(p) ? null : (

@@ -3,7 +3,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   __extraDirsPathOverlapForTesting,
   countUserExtraDirs,
-  extraDirDisplayLabel,
   LIBRARY_EXTRA_DIR_SLOT_PREFIX,
   MAX_EXTRA_DIRS,
   partitionExtraDirs,
@@ -102,7 +101,6 @@ describe('pickAndAddExtraDir', () => {
       system: [library],
       user: userDirs,
     });
-    expect(extraDirDisplayLabel(library)).toBe('Mivo 作品库（只读）');
 
     vi.stubGlobal('window', {
       electronAPI: {
@@ -147,7 +145,7 @@ describe('composer extraDirs UI 接线 library 槽', () => {
     const { fileURLToPath } = await import('node:url');
     const here = dirname(fileURLToPath(import.meta.url));
     const source = readFileSync(join(here, '../components/new-chat/AtMentionPanel.tsx'), 'utf8');
-    expect(source).toContain('extraDirDisplayLabel');
+    expect(source).toContain("t('extraDirs.libraryReadOnlyLabel')");
     expect(source).toContain('isLibraryExtraDirSlot');
     expect(source).toMatch(/isLibraryExtraDirSlot\(p\) \? null/);
   });

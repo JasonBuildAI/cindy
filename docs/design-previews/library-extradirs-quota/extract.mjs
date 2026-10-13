@@ -25,15 +25,16 @@ const truth = {
     slotPrefix: extractByPattern(actions, "export const LIBRARY_EXTRA_DIR_SLOT_PREFIX = '([^']+)'", {
       locator: 'extraDirsActions LIBRARY_EXTRA_DIR_SLOT_PREFIX',
     }),
-    systemLabel: extractByPattern(actions, "isLibraryExtraDirSlot\\(dir\\) \\? '([^']+)'", {
-      locator: 'extraDirsActions extraDirDisplayLabel 系统项文案',
+    systemLabel: makeLeaf(zhCopy.libraryReadOnlyLabel, zh, {
+      locator: 'extraDirs.libraryReadOnlyLabel',
+      keyPath: 'extraDirs.libraryReadOnlyLabel',
     }),
   },
   wiring: {
     chatInputQuotaSites: makeLeaf(
       count(chatSrc, /countUserExtraDirs\(currentExtraDirs\) \+ countUserExtraDirs\(currentWritableDirs\)/g),
       chatInput,
-      { locator: 'ChatInput 加目录/可写目录两处配额公式次数' },
+      { locator: 'ChatInput 配额公式 countUserExtraDirs(currentExtraDirs) + countUserExtraDirs(currentWritableDirs) 次数' },
     ),
     chatInputBadgeSites: makeLeaf(
       count(chatSrc, /countUserExtraDirs\(extraDirs \?\? \[\]\) \+ countUserExtraDirs\(writableDirs \?\? \[\]\)/g),
@@ -41,9 +42,9 @@ const truth = {
       { locator: 'ChatInput ExtraDirsButton extraDirsCount 公式次数' },
     ),
     panelLabelSites: makeLeaf(
-      count(panelSrc, /extraDirDisplayLabel\(p\)/g),
+      count(panelSrc, /isLibraryExtraDirSlot\(p\) \? libraryReadOnlyLabel/g),
       panel,
-      { locator: 'AtMentionPanel extraDirDisplayLabel(p) 次数' },
+      { locator: 'AtMentionPanel 系统项文案渲染点次数' },
     ),
     panelNoRemoveSites: makeLeaf(
       count(panelSrc, /isLibraryExtraDirSlot\(p\) \? null/g),

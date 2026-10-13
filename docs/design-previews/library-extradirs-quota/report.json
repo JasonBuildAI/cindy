@@ -1,4 +1,10 @@
 {
+  "stale": {
+    "since": "2026-10-13",
+    "reason": "引用目录系统项文案改走 i18n（extraDirs.libraryReadOnlyLabel）后 spec.json / truth.json / index.html 均已按当前源码重取,本报告仍是 2026-09-01 的旧快照:inputHashes 早于该改动。",
+    "warning": "下面的 ok:true 只对本报告 inputHashes 所记的那批输入成立,不代表当前工件已通过门 A-F。",
+    "howToClear": "在装有 qa-hifi-demo 工具链的环境跑 node <skill>/scripts/verify.mjs --demo docs/design-previews/library-extradirs-quota 并提交刷新后的 report.json;重跑会自然覆盖掉本字段。"
+  },
   "ok": true,
   "partial": false,
   "toolVersion": "qa-hifi-demo@2026-07-30-component-mode-r14",
