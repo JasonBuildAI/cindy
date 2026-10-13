@@ -559,7 +559,12 @@ function sourceLiteralPrefix(text: string, quoteIndex: number): string {
   // Only unwrap a recognized, adjacent marker; still require source syntax
   // before it, and never strip a suffix from an identifier such as "offer".
   const marker = text[quoteIndex] === '`' ? null : /(?:\b(?:br|rb|fr|rf|[rubf])|\$@|@\$|[$@])$/i.exec(rawPrefix);
-  return (marker ? rawPrefix.slice(0, marker.index) : rawPrefix).trimEnd();
+  const prefix = (marker ? rawPrefix.slice(0, marker.index) : rawPrefix).trimEnd();
+  // A quote inside a string literal arrives escaped ("…\"xdt…"): the trailing
+  // backslash escapes that quote, not the source syntax before it.
+  let escaped = 0;
+  while (prefix.length > escaped && prefix[prefix.length - 1 - escaped] === '\\') escaped += 1;
+  return escaped % 2 === 1 ? prefix.slice(0, -1).trimEnd() : prefix;
 }
 
 function looksLikeQuotedSourceLiteral(text: string, index: number, end: number): boolean {
@@ -568,12 +573,18 @@ function looksLikeQuotedSourceLiteral(text: string, index: number, end: number):
   if (before !== '`' && before !== '\'' && before !== '"') return false;
   // Quotes alone also occur in prose and inline Markdown. Require source syntax
   // around the literal (assignment, collection entry, argument or conditional).
+  // tool_result rows persist capped at 8 KB, so a JSON envelope that parses live
+  // reaches this scan as a broken document whose `{`/`[`/`,` are data
+  // delimiters — reading them as source syntax below would drop every declared
+  // file once the task is reopened. Valid JSON is decoded before this scan and
+  // never gets here; quotes escaped inside JSON strings keep the full check.
+  const jsonDocument = /^\s*[{[]/.test(text);
   const prefix = sourceLiteralPrefix(text, index - 1);
-  return /(?:[=\[(,?]|=>|&&|\|\||\breturn)$/.test(prefix)
+  return (/(?:[=\[(,?]|=>|&&|\|\||\breturn)$/.test(prefix) && !(jsonDocument && /[[,]$/.test(prefix)))
     // A colon alone is also a prose label ("File:"). Require a preceding
     // conditional, allowing indented continuation lines but not new prose.
     || (prefix.endsWith(':') && /\?(?:[^;\r\n]|\r?\n[ \t])*:$/.test(prefix))
-    || /[{,]\s*(?:[\w$]+|["'][^"']+["'])\s*:$/.test(prefix)
+    || (!jsonDocument && /[{,]\s*(?:[\w$]+|["'][^"']+["'])\s*:$/.test(prefix))
     || (after === before && /^\s*;/.test(text.slice(end + 1)));
 }
 

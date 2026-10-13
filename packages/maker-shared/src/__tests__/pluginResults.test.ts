@@ -388,4 +388,28 @@ describe('portable plugin results', () => {
     expect(files(`Saved ${url}`)).toEqual([]);
     expect(files(JSON.stringify({ _xdt_model_files: [{ url }] }))).toEqual([]);
   });
+  it('keeps declared files when the persist cap breaks the JSON envelope', () => {
+    // tool_result 落库按 8KB 截断(capToolResultTextForPersist),超限的 JSON 结果
+    // 会变成非法 JSON。对象键与数组分隔符仍是数据分隔符:不能被当成源码字面量
+    // 语法,否则重开任务后全部投递消失(live 可解析时同一份数据会正常提取)。
+    const a = 'xdt-file:///tmp/report.pdf';
+    const b = 'xdt-file://open?path=%2Ftmp%2Findex.html';
+    const suffix = '\n\n[tool result truncated: stored first 8KB]';
+    const capped = (text: string) => text.slice(0, 8192 - suffix.length) + suffix;
+    const envelope = (extra: Record<string, unknown>) =>
+      JSON.stringify({ ok: true, result: { ...extra, log: 'x'.repeat(9000) } });
+    for (const text of [
+      capped(envelope({ _xdt_model_files: [{ url: a, name: 'Report' }, { url: b, name: 'Index' }] })),
+      capped(envelope({ xdt_media_produced: [a, b] })),
+    ]) {
+      expect(files(text)).toEqual([{ url: a, title: 'report.pdf' }, { url: b, title: 'index.html' }]);
+      expect(hasVisibleHistoryResult(text)).toBe(true);
+    }
+    // 字符串内的源码 fixture 仍不算投递:其引号在 JSON 文本里是转义的 \"。
+    const fixture = JSON.stringify({
+      text: 'const a = "' + 'xdt-file:///tmp/fixture.pdf' + '";',
+      log: 'y'.repeat(9000),
+    });
+    expect(files(capped(fixture))).toEqual([]);
+  });
 });

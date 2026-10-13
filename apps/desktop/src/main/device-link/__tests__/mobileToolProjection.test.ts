@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { extractPayloadToolResultMedia, extractPayloadToolResultFiles } from '@cindy/maker-shared/payload-summary';
+import { capToolResultTextForPersist } from '../../../shared/toolResultPersistCap';
 import {
   MOBILE_HISTORY_PAGE_BYTES, MOBILE_TOOL_RESULT_BYTES,
   projectMobileMessagePage, projectMobileToolMessage, projectMobileToolPush, projectMobileToolResult,
@@ -59,6 +60,24 @@ describe('mobile tool projection', () => {
     expect(JSON.parse(projected)._xdt_model_files).toEqual([{ url, name: 'Report' }]);
     expect(extractPayloadToolResultFiles(projected)).toEqual([{ url, title: 'Report' }]);
     expect(new TextEncoder().encode(projected).byteLength).toBeLessThanOrEqual(MOBILE_TOOL_RESULT_BYTES);
+  });
+  it('keeps declared files after the persist cap breaks the JSON envelope', () => {
+    // 落库 8KB 截断把实时可解析的结果变成非法 JSON:投影必须以同一份投递清单
+    // 继续下发,不能因为解析失败把文件声明整体降级(重开任务/移动端历史会丢卡片)。
+    const url = 'xdt-file:///tmp/report.pdf';
+    const source = JSON.stringify({
+      ok: true,
+      result: { _xdt_model_files: [{ url }], note: 'wrote 1 file' },
+      log: '编译器输出 '.repeat(1600),
+    });
+    const capped = capToolResultTextForPersist(source);
+    expect(capped).not.toBe(source);
+    expect(capped).toContain('[tool result truncated');
+    const row = { ...tool('ghost_call:make'), role: 'tool_result', content: capped };
+    const live = projectMobileToolPush('local-db:messages:created', { message: row }) as { message: typeof row };
+    const history = projectMobileMessagePage([row], {}) as typeof row[];
+    expect(live.message).toEqual(history[0]);
+    expect(extractPayloadToolResultFiles(live.message.content)).toEqual([{ url, title: 'report.pdf' }]);
   });
   it('retains bounded plugin call identity while compacting large arguments', () => {
     const projected = projectMobileToolMessage(tool('mcp__cindy__ghost_call', { ghost_id: 'art', tool: 'generate', grant_only: false, args: { data: 'x'.repeat(40_000) } })) as ReturnType<typeof tool>;
