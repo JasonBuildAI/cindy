@@ -398,11 +398,14 @@ describe('portable plugin results', () => {
     const capped = (text: string) => text.slice(0, 8192 - suffix.length) + suffix;
     const envelope = (extra: Record<string, unknown>) =>
       JSON.stringify({ ok: true, result: { ...extra, log: 'x'.repeat(9000) } });
-    for (const text of [
-      capped(envelope({ _xdt_model_files: [{ url: a, name: 'Report' }, { url: b, name: 'Index' }] })),
-      capped(envelope({ xdt_media_produced: [a, b] })),
+    for (const source of [
+      envelope({ _xdt_model_files: [{ url: a, name: 'Report' }, { url: b, name: 'Index' }] }),
+      envelope({ xdt_media_produced: [a, b] }),
     ]) {
-      expect(files(text)).toEqual([{ url: a, title: 'report.pdf' }, { url: b, title: 'index.html' }]);
+      // 修复截断前缀后走已解码路径:投递清单与 live 完全一致(含声明 name 标题)。
+      const text = capped(source);
+      expect(files(text)).toEqual(files(source));
+      expect(files(text).length).toBe(2);
       expect(hasVisibleHistoryResult(text)).toBe(true);
     }
     // 字符串内的源码 fixture 仍不算投递:其引号在 JSON 文本里是转义的 \"。
@@ -449,6 +452,54 @@ describe('portable plugin results', () => {
       stdout: `const urls = [\n  "${fixture}"];`,
       log: 'z'.repeat(9000),
     });
-    expect(files(cap(mixed))).toEqual([{ url, title: 'report.pdf' }]);
+    expect(files(cap(mixed))).toEqual([{ url, title: 'Report' }]);
+    expect(files(cap(mixed))).toEqual(files(mixed));
+  });
+  it('decodes the repaired prefix instead of scanning raw JSON text', () => {
+    // 截断信封先修复成可解析前缀,再走与 live 相同的已解码判定:抑制哨兵、
+    // 字符串内注释、单引号源码数组、字面量反斜杠与嵌套非受支持层级都一致。
+    const suffix = '\n\n[tool result truncated: stored first 8KB]';
+    const cap = (text: string) => text.slice(0, 8192 - suffix.length) + suffix;
+    const suppressed = JSON.stringify({
+      _xdt_render_image: false,
+      _xdt_model_files: [{ url: 'xdt-file:///tmp/suppressed.pdf' }],
+      log: 'x'.repeat(9000),
+    });
+    expect(files(suppressed)).toEqual([]);
+    expect(files(cap(suppressed))).toEqual([]);
+    for (const text of [
+      '// fixture: xdt-file:///tmp/example.pdf',
+      "const paths = ['xdt-file:///tmp/report.pdf']",
+    ]) {
+      const source = JSON.stringify({ ok: true, stdout: text, log: 'y'.repeat(9000) });
+      expect(files(source), text).toEqual([]);
+      expect(files(cap(source)), text).toEqual([]);
+    }
+    // 字面量反斜杠是正文,不是换行转义:live 与截断后同样保留真投递。
+    const literal = JSON.stringify({ text: '\\nreturn "xdt-file:///tmp/report.pdf"', log: 'x'.repeat(9000) });
+    expect(files(literal)).toEqual([{ url: 'xdt-file:///tmp/report.pdf', title: 'report.pdf' }]);
+    expect(files(cap(literal))).toEqual(files(literal));
+    // 只有受支持层级的声明算投递:嵌在任意数据里的同名数组不算。
+    const nested = JSON.stringify({
+      ok: true,
+      result: { metadata: { _xdt_model_files: [{ url: 'xdt-file:///tmp/nested.pdf' }] } },
+      log: 'y'.repeat(9000),
+    });
+    expect(files(nested)).toEqual([]);
+    expect(files(cap(nested))).toEqual([]);
+  });
+  it('drops the file URL the persist cap cut in half', () => {
+    // 切点落在 URL 中段:半截 URL 指向的文件已物理丢失,不能变成死卡片。
+    const suffix = '\n\n[tool result truncated: stored first 8KB]';
+    const url = 'xdt-file:///tmp/report-final.pdf';
+    const head = '{"ok":true,"note":"';
+    const mid = '","result":{"_xdt_model_files":[{"url":"';
+    const keep = 25;
+    const source = head + 'x'.repeat(8192 - suffix.length - keep - head.length - mid.length)
+      + mid + url + '"}],"log":"' + 'y'.repeat(9000) + '"}}';
+    expect(source.indexOf(url)).toBe(8192 - suffix.length - keep);
+    const capped = source.slice(0, 8192 - suffix.length) + suffix;
+    expect(files(source)).toEqual([{ url, title: 'report-final.pdf' }]);
+    expect(files(capped)).toEqual([]);
   });
 });

@@ -438,7 +438,10 @@ export function extractPayloadToolResultMedia(toolResult: string): ExtractedPayl
 /** Only unwrap the documented ghost_call envelope, never arbitrary nested tool data. */
 export function parseToolResultPayload(text: string): Record<string, unknown> | null {
   const outer = parsePayloadJsonObject(text);
-  if (!outer) return null;
+  return outer ? mergeToolResultPayload(outer) : null;
+}
+
+function mergeToolResultPayload(outer: Record<string, unknown>): Record<string, unknown> {
   const inner = outer.ok === true ? readPayloadRecord(outer.result) : null;
   return inner ? { ...inner, ...outer, ...(inner._xdt_render_image === false ? { _xdt_render_image: false } : {}) } : outer;
 }
@@ -567,7 +570,9 @@ function sourceLiteralPrefix(text: string, quoteIndex: number): string {
   if (escaped % 2 === 0) return prefix;
   // The quote is escaped inside a JSON string: strip the escape and unwrap the
   // whitespace escapes (\n, \r, \t), so the checks below see the same text as
-  // the decoded string value instead of raw two-character sequences.
+  // the decoded string value instead of raw two-character sequences. This is
+  // the raw-scan fallback (see salvageTruncatedJsonPrefix); repaired documents
+  // never reach it.
   return prefix.slice(0, -1)
     .replace(/\\([nrt])/g, (_, escape: string) => ({ n: '\n', r: '\r', t: '\t' })[escape]!)
     .trimEnd();
@@ -579,11 +584,11 @@ function looksLikeQuotedSourceLiteral(text: string, index: number, end: number, 
   if (before !== '`' && before !== '\'' && before !== '"') return false;
   // Quotes alone also occur in prose and inline Markdown. Require source syntax
   // around the literal (assignment, collection entry, argument or conditional).
-  // A dataDocument scan reads the raw text of a tool_result whose JSON envelope
-  // broke (8 KB persist cap): its `{`/`[`/`,` are data delimiters, and reading
-  // them as source syntax below would drop every declared file once the task is
-  // reopened. Quotes escaped in the raw text ("…\"xdt…") belong to a JSON
-  // string, so they keep the source checks and match the decoded-string path.
+  // A dataDocument scan is the fallback for a JSON envelope that the 8 KB
+  // persist cap broke beyond repair: its `{`/`[`/`,` are data delimiters, and
+  // reading them as source syntax below would drop every declared file once
+  // the task is reopened. Quotes escaped in the raw text ("…\"xdt…") belong to
+  // a JSON string, so they keep the source checks and match the decoded path.
   let backslashes = 0;
   while (index - 2 - backslashes >= 0 && text[index - 2 - backslashes] === '\\') backslashes += 1;
   const dataDelimiters = dataDocument && backslashes % 2 === 0;
@@ -621,9 +626,186 @@ function* quotedSourceRanges(text: string, dataDocument: boolean): Generator<{ s
   }
 }
 
+// The persist cap (8 KB) replaces the tail of an over-long tool_result with a
+// truncation suffix, leaving the JSON envelope cut mid-value. Repairing the
+// longest parseable prefix and decoding it reuses the live decoded-value path;
+// reading raw JSON text with source heuristics cannot reproduce how the
+// un-truncated value would be read (escapes, comments, data delimiters).
+const SALVAGE_JSON_MAX_DEPTH = 256;
+const SALVAGE_JSON_NUMBER = /-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?/y;
+const SALVAGE_JSON_WHITESPACE = ' \n\r\t';
+
+type SalvageCheckpoint = { end: number; replacement?: string; closers: string[] };
+
+/** Prose also starts with `[`/`{`; only a real JSON value start counts as data. */
+function plausibleJsonValueStart(text: string, at: number): boolean {
+  const char = text[at];
+  if (char === undefined) return false;
+  if (char === '"' || char === '{' || char === '[' || char === '-' || (char >= '0' && char <= '9')) return true;
+  if (char !== 't' && char !== 'f' && char !== 'n') return false;
+  let end = at;
+  while (end < text.length && text[end] >= 'a' && text[end] <= 'z') end += 1;
+  const word = text.slice(at, end);
+  if (!['true', 'false', 'null'].some((literal) => literal.startsWith(word))) return false;
+  const following = text[end];
+  // A cut literal only continues into whitespace (the truncation suffix) or EOF.
+  return following === undefined || word === 'true' || word === 'false' || word === 'null'
+    || SALVAGE_JSON_WHITESPACE.includes(following);
+}
+
+/**
+ * Rebuild a JSON document the persist cap cut short: keep every value that
+ * finished before the cut, close the containers still open, and drop the value
+ * the cut fell into — its tail is physically gone, so a half URL such as
+ * `xdt-file:///tmp/report-fi` must not become a delivery. Returns null when the
+ * text is not such a prefix (no `{`/`[` root, or a closed document with
+ * trailing text).
+ */
+function salvageTruncatedJsonPrefix(text: string): unknown | null {
+  let index = 0;
+  const open: string[] = [];
+  let checkpoint: SalvageCheckpoint = { end: 0, closers: [] };
+
+  const skipWhitespace = (): void => {
+    while (index < text.length && SALVAGE_JSON_WHITESPACE.includes(text[index])) index += 1;
+  };
+  const markComplete = (end: number, replacement?: string): void => {
+    checkpoint = replacement === undefined
+      ? { end, closers: [...open] }
+      : { end, replacement, closers: [...open] };
+  };
+  const readString = (): boolean => {
+    index += 1; // Opening quote.
+    while (index < text.length) {
+      if (text[index] === '\\') index += 2;
+      else if (text[index] === '"') { index += 1; return true; }
+      else index += 1;
+    }
+    return false; // The cap fell inside the string.
+  };
+  const readNumber = (): boolean => {
+    SALVAGE_JSON_NUMBER.lastIndex = index;
+    if (!SALVAGE_JSON_NUMBER.exec(text)) return false;
+    const end = SALVAGE_JSON_NUMBER.lastIndex;
+    const next = text[end];
+    // "12." or "1e" is a number the cap cut short, not a completed value.
+    if (next !== undefined && next !== ',' && next !== '}' && next !== ']'
+      && !SALVAGE_JSON_WHITESPACE.includes(next)) return false;
+    index = end;
+    markComplete(end);
+    return true;
+  };
+  const readLiteral = (): boolean => {
+    const start = index;
+    while (index < text.length && text[index] >= 'a' && text[index] <= 'z') index += 1;
+    const word = text.slice(start, index);
+    if (word === 'true' || word === 'false' || word === 'null') {
+      markComplete(index);
+      return true;
+    }
+    // A literal the cap cut short still names itself unambiguously.
+    if (index >= text.length) {
+      const full = ['true', 'false', 'null'].find((candidate) => candidate.startsWith(word));
+      if (full) { markComplete(start, full); return true; }
+    }
+    return false;
+  };
+
+  function readContainer(opener: string): boolean {
+    const closer = opener === '{' ? '}' : ']';
+    if (open.length >= SALVAGE_JSON_MAX_DEPTH) return false;
+    open.push(closer);
+    index += 1;
+    skipWhitespace();
+    let first = true;
+    while (index < text.length) {
+      if (text[index] === closer) {
+        index += 1;
+        open.pop();
+        markComplete(index);
+        return true;
+      }
+      if (!first) {
+        if (text[index] !== ',') return false;
+        index += 1;
+        skipWhitespace();
+        if (index >= text.length) return false; // The cap fell right after the comma.
+      }
+      if (opener === '{') {
+        if (text[index] !== '"' || !readString()) return false;
+        skipWhitespace();
+        if (text[index] !== ':') return false;
+        index += 1;
+      }
+      if (!readValue()) return false;
+      skipWhitespace();
+      first = false;
+    }
+    return false; // The cap fell inside the container.
+  }
+
+  function readValue(): boolean {
+    skipWhitespace();
+    if (index >= text.length) return false;
+    const char = text[index];
+    if (char === '"') {
+      if (!readString()) return false;
+      markComplete(index);
+      return true;
+    }
+    if (char === '{' || char === '[') return readContainer(char);
+    if (char === '-' || (char >= '0' && char <= '9')) return readNumber();
+    if (char === 't' || char === 'f' || char === 'n') return readLiteral();
+    return false;
+  }
+
+  skipWhitespace();
+  const rootIndex = index;
+  const root = text[rootIndex];
+  if (root !== '{' && root !== '[') return null;
+  let probe = rootIndex + 1;
+  while (probe < text.length && SALVAGE_JSON_WHITESPACE.includes(text[probe])) probe += 1;
+  // Markdown and ordinary prose also start with `[`/`{` ("[report](…)");
+  // only a plausible JSON member start counts as a cut document.
+  const plausible = root === '{'
+    ? text[probe] === '"' || text[probe] === '}'
+    : text[probe] === ']' || plausibleJsonValueStart(text, probe);
+  if (!plausible) return null;
+  // Baseline: a cut before any completed value still repairs to the empty
+  // container the document opened ("{" -> "{}").
+  checkpoint = { end: rootIndex + 1, closers: [root === '{' ? '}' : ']'] };
+  const closed = readContainer(root);
+  skipWhitespace();
+  // A closed document followed by more text is corruption, not a truncation;
+  // leave it to the raw-text fallback.
+  if (closed && index < text.length) return null;
+  const repaired = (checkpoint.replacement === undefined
+    ? text.slice(0, checkpoint.end)
+    : text.slice(0, checkpoint.end) + checkpoint.replacement)
+    + checkpoint.closers.slice().reverse().join('');
+  try {
+    const value: unknown = JSON.parse(repaired);
+    return value !== null && typeof value === 'object' ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+/** A repaired prefix: its decoded value plus the documented-envelope projection. */
+function salvageToolResultDocument(text: string): { value: unknown; payload: Record<string, unknown> | null } | null {
+  const value = salvageTruncatedJsonPrefix(text);
+  if (value === null) return null;
+  const record = readPayloadRecord(value);
+  return { value, payload: record ? mergeToolResultPayload(record) : null };
+}
+
 /** Existing 3D attachments and managed file references retain a usable file entry on Mobile. */
 export function extractPayloadToolResultFiles(text: string): PayloadToolFile[] {
-  const parsed = parseToolResultPayload(text);
+  const direct = parseToolResultPayload(text);
+  // A document the 8 KB persist cap cut short: decode the repaired prefix and
+  // run the same decoded-value checks as the live result.
+  const salvaged = direct ? null : salvageToolResultDocument(text);
+  const parsed = direct ?? salvaged?.payload ?? null;
   if (parsed?._xdt_render_image === false) return [];
   const files: PayloadToolFile[] = [];
   const add = (url: unknown, title?: unknown) => {
@@ -643,13 +825,14 @@ export function extractPayloadToolResultFiles(text: string): PayloadToolFile[] {
   // Decode arrays and scalar strings as well as the object/envelope above.
   // JSON delimiters must not be mistaken for source literals. Keep declaration
   // handling tied to the documented object envelope, as before.
-  let content: unknown = parsed ?? text;
-  let rawText = !parsed;
-  if (!parsed) {
+  let content: unknown = parsed ?? salvaged?.value ?? text;
+  let rawText = !parsed && !salvaged;
+  if (rawText) {
     try { content = JSON.parse(text); rawText = false; } catch { /* Plain-text tool output. */ }
   }
-  // Only the failed-parse fallback scans the raw persisted text, where the
-  // 8 KB cap can leave a broken JSON document behind (see the source checks).
+  // Only the fallback scan reads raw persisted text: a JSON envelope the cap
+  // broke beyond repair. Its `{`/`[`/`,`/`"key":` are data delimiters, not
+  // source syntax (see the source checks).
   const dataDocument = rawText && /^\s*[{[]/.test(text);
   // Use a stack so deeply nested tool output cannot overflow the call stack.
   const pending: unknown[] = [content];

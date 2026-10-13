@@ -90,6 +90,24 @@ describe('mobile tool projection', () => {
     expect(live.message).toEqual(history[0]);
     expect(extractPayloadToolResultFiles(live.message.content)).toEqual([]);
   });
+  it('keeps suppression and in-string comments effective after the persist cap', () => {
+    // 截断前缀按已解码值判定:抑制哨兵继续生效,字符串内注释不升级为投递。
+    const sources = [
+      JSON.stringify({
+        _xdt_render_image: false,
+        _xdt_model_files: [{ url: 'xdt-file:///tmp/suppressed.pdf' }],
+        log: 'x'.repeat(9000),
+      }),
+      JSON.stringify({ ok: true, stdout: '// fixture: xdt-file:///tmp/example.pdf', log: 'y'.repeat(9000) }),
+    ];
+    for (const source of sources) {
+      const row = { ...tool('ghost_call:make'), role: 'tool_result', content: capToolResultTextForPersist(source) };
+      const live = projectMobileToolPush('local-db:messages:created', { message: row }) as { message: typeof row };
+      const history = projectMobileMessagePage([row], {}) as typeof row[];
+      expect(live.message).toEqual(history[0]);
+      expect(extractPayloadToolResultFiles(live.message.content)).toEqual([]);
+    }
+  });
   it('retains bounded plugin call identity while compacting large arguments', () => {
     const projected = projectMobileToolMessage(tool('mcp__cindy__ghost_call', { ghost_id: 'art', tool: 'generate', grant_only: false, args: { data: 'x'.repeat(40_000) } })) as ReturnType<typeof tool>;
     expect(projected.content.input).toEqual({ ghost_id: 'art', tool: 'generate', grant_only: false });
