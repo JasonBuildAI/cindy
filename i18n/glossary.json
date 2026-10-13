@@ -2488,6 +2488,18 @@
       },
       "checkCase": false,
       "note": "云端伙伴运行的那台电脑（docs/product-rules/cloud-companions.md §3）：伙伴的 Agent、工作目录与连接只在这台电脑上，其他电脑与手机是查看和发消息的入口。手机与桌面同一叫法，伙伴设置行名、离线横幅与侧栏状态共用。英文行名用 Title Case（Main Computer），句中小写 main computer，故 checkCase 为 false。不要写成「主设备」「宿主机」或 home device（代码字段 homeDeviceId 不是界面用语）。先登记为 proposed，待桌面与手机实机走查后再定。"
+    },
+    {
+      "id": "mivo-library",
+      "status": "proposed",
+      "en": "Mivo Library (Read-Only)",
+      "translations": {
+        "zh-CN": "Mivo 作品库（只读）",
+        "zh-TW": "Mivo 作品庫（唯讀）",
+        "ja": "Mivo ライブラリ（読み取り専用）",
+        "ko": "Mivo 라이브러리(읽기 전용)"
+      },
+      "note": "「引用目录」面板里 library 系统槽的只读行文案：声明 library 能力的插件会话（当前为 Mivo）由宿主把 library 根静默注入 extraDirs，该槽按 docs/image-store-agent-readable-library-final.md「UI 呈现」显示为不占名额的系统项。Mivo 是插件品牌名，五语均不译；「作品库 / library」与「只读」随各语言翻译，en 按 DESIGN.md §11.2 英文标签用 Title Case（Mivo Library (Read-Only)）。通用 library 能力与 Mivo 品牌在槽文案里的关系仍在 issue #5929 讨论，先登记 proposed。"
     }
   ]
 }

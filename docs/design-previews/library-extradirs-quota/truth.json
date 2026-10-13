@@ -3,7 +3,7 @@
     "en": {
       "addReadOnly": {
         "provenance": {
-          "hash": "b96aaae4c6188ae2a0ecf83c9aae55978cc1d4a4db6f9c7faca1e4ecc9c2baf4",
+          "hash": "14c4bfc6d6a1c6f04208fa71851dce9b1796f7f4b02aa5f53534a9a7a87a4ea5",
           "locator": "extraDirs.addReadOnly",
           "locatorKeyPath": "extraDirs.addReadOnly",
           "source": "../../../apps/desktop/src/renderer/i18n/locales/en/common.json"
@@ -12,7 +12,7 @@
       },
       "atLimit": {
         "provenance": {
-          "hash": "b96aaae4c6188ae2a0ecf83c9aae55978cc1d4a4db6f9c7faca1e4ecc9c2baf4",
+          "hash": "14c4bfc6d6a1c6f04208fa71851dce9b1796f7f4b02aa5f53534a9a7a87a4ea5",
           "locator": "extraDirs.atLimit",
           "locatorKeyPath": "extraDirs.atLimit",
           "source": "../../../apps/desktop/src/renderer/i18n/locales/en/common.json"
@@ -21,7 +21,7 @@
       },
       "empty": {
         "provenance": {
-          "hash": "b96aaae4c6188ae2a0ecf83c9aae55978cc1d4a4db6f9c7faca1e4ecc9c2baf4",
+          "hash": "14c4bfc6d6a1c6f04208fa71851dce9b1796f7f4b02aa5f53534a9a7a87a4ea5",
           "locator": "extraDirs.empty",
           "locatorKeyPath": "extraDirs.empty",
           "source": "../../../apps/desktop/src/renderer/i18n/locales/en/common.json"
@@ -30,16 +30,16 @@
       },
       "libraryReadOnlyLabel": {
         "provenance": {
-          "hash": "b96aaae4c6188ae2a0ecf83c9aae55978cc1d4a4db6f9c7faca1e4ecc9c2baf4",
+          "hash": "14c4bfc6d6a1c6f04208fa71851dce9b1796f7f4b02aa5f53534a9a7a87a4ea5",
           "locator": "extraDirs.libraryReadOnlyLabel",
           "locatorKeyPath": "extraDirs.libraryReadOnlyLabel",
           "source": "../../../apps/desktop/src/renderer/i18n/locales/en/common.json"
         },
-        "value": "Mivo library (read-only)"
+        "value": "Mivo Library (Read-Only)"
       },
       "sectionTitle": {
         "provenance": {
-          "hash": "b96aaae4c6188ae2a0ecf83c9aae55978cc1d4a4db6f9c7faca1e4ecc9c2baf4",
+          "hash": "14c4bfc6d6a1c6f04208fa71851dce9b1796f7f4b02aa5f53534a9a7a87a4ea5",
           "locator": "extraDirs.sectionTitle",
           "locatorKeyPath": "extraDirs.sectionTitle",
           "source": "../../../apps/desktop/src/renderer/i18n/locales/en/common.json"
@@ -48,7 +48,7 @@
       },
       "tooltipCount": {
         "provenance": {
-          "hash": "b96aaae4c6188ae2a0ecf83c9aae55978cc1d4a4db6f9c7faca1e4ecc9c2baf4",
+          "hash": "14c4bfc6d6a1c6f04208fa71851dce9b1796f7f4b02aa5f53534a9a7a87a4ea5",
           "locator": "extraDirs.tooltipCount",
           "locatorKeyPath": "extraDirs.tooltipCount",
           "source": "../../../apps/desktop/src/renderer/i18n/locales/en/common.json"

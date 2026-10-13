@@ -375,6 +375,10 @@ Orca 协同角色名，与 Worker 成对。五语统一保留英文 Lead，不�
 
 灵动岛角色皮肤名(设置页「图标皮肤」列表)。角色专名,四语统一保留拉丁原词,不做音译(避免「艾莉卡 / エリカ / 에리카」多套写法)。
 
+### Mivo Library (Read-Only)
+
+「引用目录」面板里 library 系统槽的只读行文案：声明 library 能力的插件会话（当前为 Mivo）由宿主把 library 根静默注入 extraDirs，该槽按 docs/image-store-agent-readable-library-final.md「UI 呈现」显示为不占名额的系统项。Mivo 是插件品牌名，五语均不译；「作品库 / library」与「只读」随各语言翻译，en 按 DESIGN.md §11.2 英文标签用 Title Case（Mivo Library (Read-Only)）。通用 library 能力与 Mivo 品牌在槽文案里的关系仍在 issue #5929 讨论，先登记 proposed。
+
 ### Audio Generation
 
 V4 模型类型 audio_generation，包含通用声音生成；与 audio_speech 语音合成分别展示。
