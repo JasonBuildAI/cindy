@@ -83,7 +83,7 @@ describe('mobile tool projection', () => {
     // 同一份源码字面量:live(可解析)与落库截断后必须都判为非投递,不能让
     // 截断把字符串内部的源码写法升级成文件卡片。
     const url = 'xdt-file:///tmp/report.pdf';
-    const source = JSON.stringify({ ok: true, stdout: `const urls = ["${url}"];`, log: 'x'.repeat(9000) });
+    const source = JSON.stringify({ ok: true, stdout: `const urls = [\n  "${url}"];`, log: 'x'.repeat(9000) });
     const row = { ...tool('ghost_call:make'), role: 'tool_result', content: capToolResultTextForPersist(source) };
     const live = projectMobileToolPush('local-db:messages:created', { message: row }) as { message: typeof row };
     const history = projectMobileMessagePage([row], {}) as typeof row[];

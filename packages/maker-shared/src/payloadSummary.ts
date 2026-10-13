@@ -564,7 +564,13 @@ function sourceLiteralPrefix(text: string, quoteIndex: number): string {
   // backslash escapes that quote, not the source syntax before it.
   let escaped = 0;
   while (prefix.length > escaped && prefix[prefix.length - 1 - escaped] === '\\') escaped += 1;
-  return escaped % 2 === 1 ? prefix.slice(0, -1).trimEnd() : prefix;
+  if (escaped % 2 === 0) return prefix;
+  // The quote is escaped inside a JSON string: strip the escape and unwrap the
+  // whitespace escapes (\n, \r, \t), so the checks below see the same text as
+  // the decoded string value instead of raw two-character sequences.
+  return prefix.slice(0, -1)
+    .replace(/\\([nrt])/g, (_, escape: string) => ({ n: '\n', r: '\r', t: '\t' })[escape]!)
+    .trimEnd();
 }
 
 function looksLikeQuotedSourceLiteral(text: string, index: number, end: number, dataDocument: boolean): boolean {

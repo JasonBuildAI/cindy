@@ -425,4 +425,30 @@ describe('portable plugin results', () => {
     // 未加引号的对象键是源码语法,不是被截断 JSON 的数据分隔符。
     expect(files(`{\n url: "${url}",\n}`)).toEqual([]);
   });
+  it('folds string escapes before the source checks in the capped scan', () => {
+    // JSON 字符串里的换行/制表符在原文中是 \n、\t 两个字符。多行源码写法
+    // 在 live(已解码)与截断后(原文)也必须一致判非投递。
+    const url = 'xdt-file:///tmp/report.pdf';
+    const suffix = '\n\n[tool result truncated: stored first 8KB]';
+    const cap = (text: string) => text.slice(0, 8192 - suffix.length) + suffix;
+    for (const snippet of [
+      `const urls = [\n  "${url}"];`,
+      `const urls = [\n  "${url}",\n];`,
+      `{ url:\n\t"${url}",\n}`,
+      `{\n  url: "${url}"\n}`,
+    ]) {
+      const source = JSON.stringify({ ok: true, stdout: snippet, log: 'x'.repeat(9000) });
+      expect(files(source), snippet).toEqual([]);
+      expect(files(cap(source)), snippet).toEqual([]);
+    }
+    // 混合信封:截断后只保留真声明,字符串内的多行源码片段不升级为投递。
+    const fixture = 'xdt-file:///tmp/fixture.pdf';
+    const mixed = JSON.stringify({
+      ok: true,
+      result: { _xdt_model_files: [{ url, name: 'Report' }] },
+      stdout: `const urls = [\n  "${fixture}"];`,
+      log: 'z'.repeat(9000),
+    });
+    expect(files(cap(mixed))).toEqual([{ url, title: 'report.pdf' }]);
+  });
 });
