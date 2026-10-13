@@ -25,10 +25,6 @@ const truth = {
     slotPrefix: extractByPattern(actions, "export const LIBRARY_EXTRA_DIR_SLOT_PREFIX = '([^']+)'", {
       locator: 'extraDirsActions LIBRARY_EXTRA_DIR_SLOT_PREFIX',
     }),
-    systemLabel: makeLeaf(zhCopy.libraryReadOnlyLabel, zh, {
-      locator: 'extraDirs.libraryReadOnlyLabel',
-      keyPath: 'extraDirs.libraryReadOnlyLabel',
-    }),
   },
   wiring: {
     chatInputQuotaSites: makeLeaf(
@@ -55,6 +51,7 @@ const truth = {
   copy: {
     'zh-CN': {
       sectionTitle: makeLeaf(zhCopy.sectionTitle, zh, { locator: 'extraDirs.sectionTitle', keyPath: 'extraDirs.sectionTitle' }),
+      libraryReadOnlyLabel: makeLeaf(zhCopy.libraryReadOnlyLabel, zh, { locator: 'extraDirs.libraryReadOnlyLabel', keyPath: 'extraDirs.libraryReadOnlyLabel' }),
       addReadOnly: makeLeaf(zhCopy.addReadOnly, zh, { locator: 'extraDirs.addReadOnly', keyPath: 'extraDirs.addReadOnly' }),
       atLimit: makeLeaf(zhCopy.atLimit, zh, { locator: 'extraDirs.atLimit', keyPath: 'extraDirs.atLimit' }),
       tooltipCount: makeLeaf(zhCopy.tooltipCount, zh, { locator: 'extraDirs.tooltipCount', keyPath: 'extraDirs.tooltipCount' }),
@@ -62,6 +59,7 @@ const truth = {
     },
     en: {
       sectionTitle: makeLeaf(enCopy.sectionTitle, en, { locator: 'extraDirs.sectionTitle', keyPath: 'extraDirs.sectionTitle' }),
+      libraryReadOnlyLabel: makeLeaf(enCopy.libraryReadOnlyLabel, en, { locator: 'extraDirs.libraryReadOnlyLabel', keyPath: 'extraDirs.libraryReadOnlyLabel' }),
       addReadOnly: makeLeaf(enCopy.addReadOnly, en, { locator: 'extraDirs.addReadOnly', keyPath: 'extraDirs.addReadOnly' }),
       atLimit: makeLeaf(enCopy.atLimit, en, { locator: 'extraDirs.atLimit', keyPath: 'extraDirs.atLimit' }),
       tooltipCount: makeLeaf(enCopy.tooltipCount, en, { locator: 'extraDirs.tooltipCount', keyPath: 'extraDirs.tooltipCount' }),

@@ -28,6 +28,15 @@
         },
         "value": "No reference directories yet"
       },
+      "libraryReadOnlyLabel": {
+        "provenance": {
+          "hash": "b96aaae4c6188ae2a0ecf83c9aae55978cc1d4a4db6f9c7faca1e4ecc9c2baf4",
+          "locator": "extraDirs.libraryReadOnlyLabel",
+          "locatorKeyPath": "extraDirs.libraryReadOnlyLabel",
+          "source": "../../../apps/desktop/src/renderer/i18n/locales/en/common.json"
+        },
+        "value": "Mivo library (read-only)"
+      },
       "sectionTitle": {
         "provenance": {
           "hash": "b96aaae4c6188ae2a0ecf83c9aae55978cc1d4a4db6f9c7faca1e4ecc9c2baf4",
@@ -75,6 +84,15 @@
         },
         "value": "还没有引用目录"
       },
+      "libraryReadOnlyLabel": {
+        "provenance": {
+          "hash": "5a6ecb582f8f04a74c6907c703424f0f58db1d264155cf2b27850c66b8eeb792",
+          "locator": "extraDirs.libraryReadOnlyLabel",
+          "locatorKeyPath": "extraDirs.libraryReadOnlyLabel",
+          "source": "../../../apps/desktop/src/renderer/i18n/locales/zh-CN/common.json"
+        },
+        "value": "Mivo 作品库（只读）"
+      },
       "sectionTitle": {
         "provenance": {
           "hash": "5a6ecb582f8f04a74c6907c703424f0f58db1d264155cf2b27850c66b8eeb792",
@@ -113,15 +131,6 @@
         "source": "../../../apps/desktop/src/renderer/components/new-chat/extraDirsActions.ts"
       },
       "value": "cindy-library:"
-    },
-    "systemLabel": {
-      "provenance": {
-        "hash": "5a6ecb582f8f04a74c6907c703424f0f58db1d264155cf2b27850c66b8eeb792",
-        "locator": "extraDirs.libraryReadOnlyLabel",
-        "locatorKeyPath": "extraDirs.libraryReadOnlyLabel",
-        "source": "../../../apps/desktop/src/renderer/i18n/locales/zh-CN/common.json"
-      },
-      "value": "Mivo 作品库（只读）"
     }
   },
   "wiring": {
