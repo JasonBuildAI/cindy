@@ -286,11 +286,22 @@ export function nextRun(expr: string, fromMs: number, tz: string): number {
         cur = fromWallClock(w.y, w.mo, w.d, w.h, next, tz);
       } else {
         // wrap into next hour. +1h on UTC then re-derive wall components handles DST jumps:
-        // spring-forward jumps the wall hour past the missing slot; fall-back may land us
-        // back in the same wall hour, which the outer loop will then advance again.
+        // spring-forward jumps the wall hour past the missing slot; a fall-back can land us
+        // back in the same wall hour (sub-hour shifts).
         const soh = fromWallClock(w.y, w.mo, w.d, w.h, 0, tz) + 3600_000;
         const w2 = wallClock(soh, tz);
-        cur = fromWallClock(w2.y, w2.mo, w2.d, w2.h, next, tz);
+        const wrapped = fromWallClock(w2.y, w2.mo, w2.d, w2.h, next, tz);
+        // Australia/Lord_Howe falls back 30min (02:00 +11:00 -> 01:30 +10:30): the one
+        // shape where the +1h hop stays inside the same wall hour, so `next` — a minute
+        // the wall clock has already passed — resolves back to the pre-transition instant.
+        // Returning it breaks the strictly-future contract and makes the scheduler re-fire
+        // that minute every tick, so skip to just past the end of this wall hour instead;
+        // the outer hour/day branches take it from there, as whole-hour fall-backs already
+        // do when the repeated hour offers no slot after the walk position.
+        cur =
+          wrapped > cur
+            ? wrapped
+            : Math.max(cur + 60_000, fromWallClock(w.y, w.mo, w.d, w.h, 59, tz) + 60_000);
       }
       continue;
     }

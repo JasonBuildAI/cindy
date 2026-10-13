@@ -261,6 +261,49 @@ describe('nextRun', () => {
       }
     }
   });
+
+  it('sub-hour fall-back (Australia/Lord_Howe): daily cron never yields a past instant', () => {
+    // 2026-04-05 02:00 +11:00 -> 01:30 +10:30: a 30-minute fall-back, so wall hour 01
+    // lasts 90 minutes (01:00-01:59 at +11:00, then 01:30-01:59 again at +10:30).
+    // Re-deriving a minute that does not repeat (01:00-01:29) used to land on the
+    // pre-transition instant - 14:23:00Z for the query below, i.e. 13s in the past -
+    // which the scheduler treats as due and re-fires on every tick.
+    const from = Date.UTC(2026, 3, 4, 14, 23, 13); // 2026-04-05 01:23:13 +11:00
+    const next = nextRun('23 1 * * *', from, 'Australia/Lord_Howe');
+    expect(next).toBeGreaterThan(from);
+    expect(next).toBe(Date.UTC(2026, 3, 5, 14, 53, 0)); // next day 01:23 at +10:30
+  });
+
+  it('sub-hour fall-back (Australia/Lord_Howe): hourly cron skips the shortened hour', () => {
+    // 01:00 (+11:00) has fired; wall hour 01 holds no later :00 slot, so the next fire
+    // is 02:00 (+10:30) - the same "advance one wall hour" rule whole-hour zones follow.
+    // Before the fix this returned 14:00:00Z, 21s in the past.
+    const from = Date.UTC(2026, 3, 4, 14, 0, 21);
+    const next = nextRun('0 * * * *', from, 'Australia/Lord_Howe');
+    expect(next).toBe(Date.UTC(2026, 3, 4, 15, 30, 0)); // 2026-04-05 02:00 +10:30
+  });
+
+  it('sub-hour fall-back (Australia/Lord_Howe): repeated minute keeps the later occurrence', () => {
+    // 01:45 exists at 14:45Z (+11:00) and 15:15Z (+10:30); from inside the repeated
+    // half the later occurrence wins, exactly as in whole-hour fall-back zones.
+    const next = nextRun('45 1 * * *', Date.UTC(2026, 3, 4, 14, 50, 30), 'Australia/Lord_Howe');
+    expect(next).toBe(Date.UTC(2026, 3, 4, 15, 15, 0));
+  });
+
+  it('sub-hour fall-back (Australia/Lord_Howe): every minute of the transition day stays strictly future', () => {
+    // Sweep the 90-minute wall hour 01 and its neighbours; every query must land after
+    // `from`, whichever branch of the walk it takes (the repeated half, the wrap into
+    // the next hour, and the wrap into the next day).
+    const dayStart = Date.UTC(2026, 3, 4, 12, 0, 0); // 2026-04-04 23:00 +11:00
+    for (let i = 0; i < 300; i++) {
+      const from = dayStart + i * 60_000 + 13_000;
+      const stamp = new Date(from).toISOString();
+      for (const expr of ['0 * * * *', '23 1 * * *', '35 1 * * *', '45 1 * * *', '*/10 * * * *']) {
+        const next = nextRun(expr, from, 'Australia/Lord_Howe');
+        expect(next, `${expr} @ ${stamp}`).toBeGreaterThan(from);
+      }
+    }
+  });
 });
 
 describe('cronToHuman', () => {
