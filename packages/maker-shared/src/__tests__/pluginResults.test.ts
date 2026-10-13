@@ -412,4 +412,17 @@ describe('portable plugin results', () => {
     });
     expect(files(capped(fixture))).toEqual([]);
   });
+  it('keeps live and capped extraction consistent around escaped source literals', () => {
+    // 同一份源码字面量:live 走已解码的字符串值,落库截断后走原文扫描。转义
+    // 引号说明引用来自 JSON 字符串内部,两条路径必须得出同样的"非投递"结论。
+    const url = 'xdt-file:///tmp/report.pdf';
+    const source = JSON.stringify({ ok: true, stdout: `const urls = ["${url}"];`, log: 'x'.repeat(9000) });
+    const suffix = '\n\n[tool result truncated: stored first 8KB]';
+    expect(files(source)).toEqual([]);
+    expect(files(source.slice(0, 8192 - suffix.length) + suffix)).toEqual([]);
+    // 已解码的字符串值以 `[` 开头同样按源码过滤,与截断后的结论一致。
+    expect(files(JSON.stringify({ stdout: `["${url}"]` }))).toEqual([]);
+    // 未加引号的对象键是源码语法,不是被截断 JSON 的数据分隔符。
+    expect(files(`{\n url: "${url}",\n}`)).toEqual([]);
+  });
 });

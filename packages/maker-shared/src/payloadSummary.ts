@@ -567,28 +567,33 @@ function sourceLiteralPrefix(text: string, quoteIndex: number): string {
   return escaped % 2 === 1 ? prefix.slice(0, -1).trimEnd() : prefix;
 }
 
-function looksLikeQuotedSourceLiteral(text: string, index: number, end: number): boolean {
+function looksLikeQuotedSourceLiteral(text: string, index: number, end: number, dataDocument: boolean): boolean {
   const before = text[index - 1];
   const after = text[end];
   if (before !== '`' && before !== '\'' && before !== '"') return false;
   // Quotes alone also occur in prose and inline Markdown. Require source syntax
   // around the literal (assignment, collection entry, argument or conditional).
-  // tool_result rows persist capped at 8 KB, so a JSON envelope that parses live
-  // reaches this scan as a broken document whose `{`/`[`/`,` are data
-  // delimiters — reading them as source syntax below would drop every declared
-  // file once the task is reopened. Valid JSON is decoded before this scan and
-  // never gets here; quotes escaped inside JSON strings keep the full check.
-  const jsonDocument = /^\s*[{[]/.test(text);
+  // A dataDocument scan reads the raw text of a tool_result whose JSON envelope
+  // broke (8 KB persist cap): its `{`/`[`/`,` are data delimiters, and reading
+  // them as source syntax below would drop every declared file once the task is
+  // reopened. Quotes escaped in the raw text ("…\"xdt…") belong to a JSON
+  // string, so they keep the source checks and match the decoded-string path.
+  let backslashes = 0;
+  while (index - 2 - backslashes >= 0 && text[index - 2 - backslashes] === '\\') backslashes += 1;
+  const dataDelimiters = dataDocument && backslashes % 2 === 0;
   const prefix = sourceLiteralPrefix(text, index - 1);
-  return (/(?:[=\[(,?]|=>|&&|\|\||\breturn)$/.test(prefix) && !(jsonDocument && /[[,]$/.test(prefix)))
+  return (/(?:[=\[(,?]|=>|&&|\|\||\breturn)$/.test(prefix) && !(dataDelimiters && /[[,]$/.test(prefix)))
     // A colon alone is also a prose label ("File:"). Require a preceding
     // conditional, allowing indented continuation lines but not new prose.
     || (prefix.endsWith(':') && /\?(?:[^;\r\n]|\r?\n[ \t])*:$/.test(prefix))
-    || (!jsonDocument && /[{,]\s*(?:[\w$]+|["'][^"']+["'])\s*:$/.test(prefix))
+    // Unquoted keys stay source object syntax in every scan; JSON data keys are
+    // quoted and only count as source outside the truncated data document.
+    || /[{,]\s*[\w$]+\s*:$/.test(prefix)
+    || (!dataDelimiters && /[{,]\s*["'][^"']+["']\s*:$/.test(prefix))
     || (after === before && /^\s*;/.test(text.slice(end + 1)));
 }
 
-function* quotedSourceRanges(text: string): Generator<{ start: number; end: number }> {
+function* quotedSourceRanges(text: string, dataDocument: boolean): Generator<{ start: number; end: number }> {
   // Classify the whole literal, not only URLs touching its opening quote.
   // Comments and escaped quotes use the same token boundaries as source context.
   let previous: { end: number; source: boolean } | undefined;
@@ -604,7 +609,7 @@ function* quotedSourceRanges(text: string): Generator<{ start: number; end: numb
     const continuesExpression = separator === ',' || separator === '+';
     const source: boolean = previous && continuesExpression
       ? previous.source
-      : looksLikeQuotedSourceLiteral(text, start + 1, end);
+      : looksLikeQuotedSourceLiteral(text, start + 1, end, dataDocument);
     if (source) yield { start, end };
     previous = { end, source };
   }
@@ -633,9 +638,13 @@ export function extractPayloadToolResultFiles(text: string): PayloadToolFile[] {
   // JSON delimiters must not be mistaken for source literals. Keep declaration
   // handling tied to the documented object envelope, as before.
   let content: unknown = parsed ?? text;
+  let rawText = !parsed;
   if (!parsed) {
-    try { content = JSON.parse(text); } catch { /* Plain-text tool output. */ }
+    try { content = JSON.parse(text); rawText = false; } catch { /* Plain-text tool output. */ }
   }
+  // Only the failed-parse fallback scans the raw persisted text, where the
+  // 8 KB cap can leave a broken JSON document behind (see the source checks).
+  const dataDocument = rawText && /^\s*[{[]/.test(text);
   // Use a stack so deeply nested tool output cannot overflow the call stack.
   const pending: unknown[] = [content];
   while (pending.length) {
@@ -646,7 +655,7 @@ export function extractPayloadToolResultFiles(text: string): PayloadToolFile[] {
       // Strip comments once; repeatedly lexing the prefix of every literal is
       // quadratic for large source-file output. Offsets stay in the original text.
       const sourceContext = withoutSourceComments(value);
-      const sourceRanges = quotedSourceRanges(sourceContext);
+      const sourceRanges = quotedSourceRanges(sourceContext, dataDocument);
       let range = sourceRanges.next();
       let previous: { end: number; source: boolean } | undefined;
       for (let match; (match = urlPattern.exec(value));) {
@@ -668,7 +677,7 @@ export function extractPayloadToolResultFiles(text: string): PayloadToolFile[] {
           && withoutSourceComments(value.slice(previous.end + 1, start - 1)).trim() === ',';
         const source = previous && continuesList
           ? previous.source
-          : looksLikeQuotedSourceLiteral(sourceContext, start, start + url.length);
+          : looksLikeQuotedSourceLiteral(sourceContext, start, start + url.length, dataDocument);
         if (!source) add(url);
         previous = { end: start + url.length, source };
       }

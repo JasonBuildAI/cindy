@@ -79,6 +79,17 @@ describe('mobile tool projection', () => {
     expect(live.message).toEqual(history[0]);
     expect(extractPayloadToolResultFiles(live.message.content)).toEqual([{ url, title: 'report.pdf' }]);
   });
+  it('keeps escaped source literals filtered after the persist cap', () => {
+    // 同一份源码字面量:live(可解析)与落库截断后必须都判为非投递,不能让
+    // 截断把字符串内部的源码写法升级成文件卡片。
+    const url = 'xdt-file:///tmp/report.pdf';
+    const source = JSON.stringify({ ok: true, stdout: `const urls = ["${url}"];`, log: 'x'.repeat(9000) });
+    const row = { ...tool('ghost_call:make'), role: 'tool_result', content: capToolResultTextForPersist(source) };
+    const live = projectMobileToolPush('local-db:messages:created', { message: row }) as { message: typeof row };
+    const history = projectMobileMessagePage([row], {}) as typeof row[];
+    expect(live.message).toEqual(history[0]);
+    expect(extractPayloadToolResultFiles(live.message.content)).toEqual([]);
+  });
   it('retains bounded plugin call identity while compacting large arguments', () => {
     const projected = projectMobileToolMessage(tool('mcp__cindy__ghost_call', { ghost_id: 'art', tool: 'generate', grant_only: false, args: { data: 'x'.repeat(40_000) } })) as ReturnType<typeof tool>;
     expect(projected.content.input).toEqual({ ghost_id: 'art', tool: 'generate', grant_only: false });
