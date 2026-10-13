@@ -48,9 +48,13 @@ describe('composer 引用目录系统项文案跟随界面语言', () => {
       await act(async () => {
         await i18n.changeLanguage(locale);
       });
-      const expected = i18n.t('extraDirs.libraryReadOnlyLabel');
+      // 直取该语言的资源(不走 fallbackLng):漏译时也会失败,而不是静默回退英文。
+      const expected = i18n.getResource(locale, 'common', 'extraDirs.libraryReadOnlyLabel');
+      expect(typeof expected).toBe('string');
+      const label = expected as string;
+      expect(label.trim().length).toBeGreaterThan(0);
       renderPanelWithLibrarySlot();
-      expect(screen.getByText(expected)).toBeTruthy();
+      expect(screen.getByText(label)).toBeTruthy();
       if (locale !== 'zh-CN') {
         expect(screen.queryByText(HARDCODED_LEGACY_LABEL)).toBeNull();
       }
