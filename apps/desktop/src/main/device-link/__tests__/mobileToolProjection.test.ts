@@ -90,6 +90,24 @@ describe('mobile tool projection', () => {
     expect(live.message).toEqual(history[0]);
     expect(extractPayloadToolResultFiles(live.message.content)).toEqual([]);
   });
+  it('keeps declared files when the persist cap cuts the trailing literal', () => {
+    // 8KB 切点落在 `"ok":tru` 中段:截断标记是字面量的边界,修复出 `ok:true`
+    // 后才能展开 result 里的声明,实时推送与历史分页必须保留同一份清单。
+    const url = 'xdt-file:///tmp/report.pdf';
+    const cut = 8 * 1024 - '\n\n[tool result truncated: stored first 8KB]'.length;
+    const head = '{"result":{"_xdt_model_files":[{"url":"' + url + '","name":"Report"}]},"pad":"';
+    const source = head + 'x'.repeat(cut - 10 - head.length)
+      + '","ok":true,"tail":"' + 'y'.repeat(200) + '"}';
+    expect(source.length).toBeGreaterThan(8 * 1024);
+    expect(source.slice(cut - 8, cut)).toBe('"ok":tru');
+    const capped = capToolResultTextForPersist(source);
+    expect(capped).not.toBe(source);
+    const row = { ...tool('ghost_call:make'), role: 'tool_result', content: capped };
+    const live = projectMobileToolPush('local-db:messages:created', { message: row }) as { message: typeof row };
+    const history = projectMobileMessagePage([row], {}) as typeof row[];
+    expect(live.message).toEqual(history[0]);
+    expect(extractPayloadToolResultFiles(live.message.content)).toEqual([{ url, title: 'Report' }]);
+  });
   it('keeps suppression and in-string comments effective after the persist cap', () => {
     // 截断前缀按已解码值判定:抑制哨兵继续生效,字符串内注释不升级为投递。
     const sources = [

@@ -502,4 +502,43 @@ describe('portable plugin results', () => {
     expect(files(source)).toEqual([{ url, title: 'report-final.pdf' }]);
     expect(files(capped)).toEqual([]);
   });
+  it('only repairs a text a platform truncation marker confirms', () => {
+    // 平台截断标记是"复用已解码判定"的唯一凭据:普通文本即使以 `{`/`[` 开头,
+    // 或本身就是破损 JSON,都保持与 live 相同的原文扫描口径。
+    const url = 'xdt-file:///tmp/report.pdf';
+    const suffix = '\n\n[tool result truncated: stored first 8KB]';
+    // 根级单引号源码数组:live 判非投递,带不带截断标记都不能升级成卡片。
+    expect(files(`['${url}']`)).toEqual([]);
+    expect(files(`['${url}']` + suffix)).toEqual([]);
+    // 不是平台截断的破损文本:真实 URL 按原文扫描保留(与父版本一致)。
+    const broken = '{"message":"oops",broken:' + url;
+    expect(files(broken)).toEqual([{ url, title: 'report.pdf' }]);
+    // 带标记、但正文不是 JSON 前缀:同样从原文恢复该 URL,不被修复吞掉。
+    const overlong = broken + ' ' + 'x'.repeat(9000);
+    expect(files(overlong.slice(0, 8192 - suffix.length) + suffix)).toEqual(files(overlong));
+  });
+  it('treats the truncation marker as the cut boundary of a trailing literal', () => {
+    // 8KB 切点恰好落在 `"ok":tru` 中段:字面量的截断边界是标记起点而不是物理
+    // EOF,修复后 `ok:true` 仍能展开 result 里的文件声明。
+    const url = 'xdt-file:///tmp/report.pdf';
+    const suffix = '\n\n[tool result truncated: stored first 8KB]';
+    const cut = 8192 - suffix.length;
+    const head = '{"result":{"_xdt_model_files":[{"url":"' + url + '","name":"Report"}]},"pad":"';
+    const source = head + 'x'.repeat(cut - 10 - head.length) + '","ok":true}';
+    expect(source.slice(cut - 8, cut)).toBe('"ok":tru');
+    const capped = source.slice(0, cut) + suffix;
+    expect(files(source)).toEqual([{ url, title: 'Report' }]);
+    expect(files(capped)).toEqual(files(source));
+    expect(hasVisibleHistoryResult(capped)).toBe(true);
+    // device-link 的两种内容上限标记同样视为截断边界。
+    for (const remote of ['\n\n[remote content truncated: payload too large]', '\n[device-link truncated]']) {
+      const envelope = JSON.stringify({
+        ok: true,
+        result: { _xdt_model_files: [{ url, name: 'Report' }] },
+        log: 'x'.repeat(9000),
+      });
+      const text = envelope.slice(0, 8192 - remote.length) + remote;
+      expect(files(text), remote).toEqual([{ url, title: 'Report' }]);
+    }
+  });
 });

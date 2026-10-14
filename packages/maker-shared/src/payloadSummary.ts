@@ -578,33 +578,22 @@ function sourceLiteralPrefix(text: string, quoteIndex: number): string {
     .trimEnd();
 }
 
-function looksLikeQuotedSourceLiteral(text: string, index: number, end: number, dataDocument: boolean): boolean {
+function looksLikeQuotedSourceLiteral(text: string, index: number, end: number): boolean {
   const before = text[index - 1];
   const after = text[end];
   if (before !== '`' && before !== '\'' && before !== '"') return false;
   // Quotes alone also occur in prose and inline Markdown. Require source syntax
   // around the literal (assignment, collection entry, argument or conditional).
-  // A dataDocument scan is the fallback for a JSON envelope that the 8 KB
-  // persist cap broke beyond repair: its `{`/`[`/`,` are data delimiters, and
-  // reading them as source syntax below would drop every declared file once
-  // the task is reopened. Quotes escaped in the raw text ("…\"xdt…") belong to
-  // a JSON string, so they keep the source checks and match the decoded path.
-  let backslashes = 0;
-  while (index - 2 - backslashes >= 0 && text[index - 2 - backslashes] === '\\') backslashes += 1;
-  const dataDelimiters = dataDocument && backslashes % 2 === 0;
   const prefix = sourceLiteralPrefix(text, index - 1);
-  return (/(?:[=\[(,?]|=>|&&|\|\||\breturn)$/.test(prefix) && !(dataDelimiters && /[[,]$/.test(prefix)))
+  return /(?:[=[(,?]|=>|&&|\|\||\breturn)$/.test(prefix)
     // A colon alone is also a prose label ("File:"). Require a preceding
     // conditional, allowing indented continuation lines but not new prose.
     || (prefix.endsWith(':') && /\?(?:[^;\r\n]|\r?\n[ \t])*:$/.test(prefix))
-    // Unquoted keys stay source object syntax in every scan; JSON data keys are
-    // quoted and only count as source outside the truncated data document.
-    || /[{,]\s*[\w$]+\s*:$/.test(prefix)
-    || (!dataDelimiters && /[{,]\s*["'][^"']+["']\s*:$/.test(prefix))
+    || /[{,]\s*(?:[\w$]+|["'][^"']+["'])\s*:$/.test(prefix)
     || (after === before && /^\s*;/.test(text.slice(end + 1)));
 }
 
-function* quotedSourceRanges(text: string, dataDocument: boolean): Generator<{ start: number; end: number }> {
+function* quotedSourceRanges(text: string): Generator<{ start: number; end: number }> {
   // Classify the whole literal, not only URLs touching its opening quote.
   // Comments and escaped quotes use the same token boundaries as source context.
   let previous: { end: number; source: boolean } | undefined;
@@ -620,17 +609,39 @@ function* quotedSourceRanges(text: string, dataDocument: boolean): Generator<{ s
     const continuesExpression = separator === ',' || separator === '+';
     const source: boolean = previous && continuesExpression
       ? previous.source
-      : looksLikeQuotedSourceLiteral(text, start + 1, end, dataDocument);
+      : looksLikeQuotedSourceLiteral(text, start + 1, end);
     if (source) yield { start, end };
     previous = { end, source };
   }
 }
 
-// The persist cap (8 KB) replaces the tail of an over-long tool_result with a
-// truncation suffix, leaving the JSON envelope cut mid-value. Repairing the
-// longest parseable prefix and decoding it reuses the live decoded-value path;
-// reading raw JSON text with source heuristics cannot reproduce how the
-// un-truncated value would be read (escapes, comments, data delimiters).
+// A tool_result reaches this module after a platform cap may have replaced its
+// tail with a marker. Only a marked text can be a cut JSON document; text that
+// merely starts with `{`/`[` (prose, source snippets, broken output) keeps the
+// source-literal checks, exactly like the live scan. Keep these literals in
+// sync with their producers:
+//   apps/desktop/src/shared/toolResultPersistCap.ts            (persist cap)
+//   apps/desktop/src/main/device-link/mobileToolProjection.ts  (wire budget)
+//   apps/desktop/src/main/device-link/dispatch.ts              (invoke/push budget)
+const TOOL_RESULT_TRUNCATION_SUFFIXES = [
+  '\n\n[tool result truncated: stored first 8KB]',
+  '\n\n[remote content truncated: payload too large]',
+  '\n[device-link truncated]',
+];
+
+/** The body a platform cap left in front of its truncation marker, if any. */
+function truncatedToolResultBody(text: string): string | null {
+  for (const suffix of TOOL_RESULT_TRUNCATION_SUFFIXES) {
+    if (text.endsWith(suffix)) return text.slice(0, -suffix.length);
+  }
+  return null;
+}
+
+// The caps replace the tail of an over-long tool_result with a marker, leaving
+// the JSON envelope cut mid-value. Repairing the longest parseable prefix and
+// decoding it reuses the live decoded-value path; reading raw JSON text with
+// source heuristics cannot reproduce how the un-truncated value would be read
+// (escapes, comments, data delimiters).
 const SALVAGE_JSON_MAX_DEPTH = 256;
 const SALVAGE_JSON_NUMBER = /-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?/y;
 const SALVAGE_JSON_WHITESPACE = ' \n\r\t';
@@ -654,18 +665,26 @@ function plausibleJsonValueStart(text: string, at: number): boolean {
 }
 
 /**
- * Rebuild a JSON document the persist cap cut short: keep every value that
- * finished before the cut, close the containers still open, and drop the value
- * the cut fell into — its tail is physically gone, so a half URL such as
- * `xdt-file:///tmp/report-fi` must not become a delivery. Returns null when the
- * text is not such a prefix (no `{`/`[` root, or a closed document with
- * trailing text).
+ * Rebuild the JSON document a platform cap cut short (the body in front of its
+ * truncation marker): keep every value that finished before the cut, close the
+ * containers still open, and drop the value the cut fell into — its tail is
+ * physically gone, so a half URL such as `xdt-file:///tmp/report-fi` must not
+ * become a delivery. Returns null when the body was never this document: no
+ * `{`/`[` root, a syntax error before its end, or a completed document.
  */
 function salvageTruncatedJsonPrefix(text: string): unknown | null {
   let index = 0;
+  // A repair is only trusted when the scan ran out of text (`cut`), not when it
+  // hit a token JSON cannot contain (`invalid`): only then is the body a JSON
+  // prefix of the document the cap truncated.
+  let failure: 'cut' | 'invalid' | null = null;
   const open: string[] = [];
   let checkpoint: SalvageCheckpoint = { end: 0, closers: [] };
 
+  const fail = (kind: 'cut' | 'invalid'): false => {
+    failure = kind;
+    return false;
+  };
   const skipWhitespace = (): void => {
     while (index < text.length && SALVAGE_JSON_WHITESPACE.includes(text[index])) index += 1;
   };
@@ -681,16 +700,26 @@ function salvageTruncatedJsonPrefix(text: string): unknown | null {
       else if (text[index] === '"') { index += 1; return true; }
       else index += 1;
     }
-    return false; // The cap fell inside the string.
+    return fail('cut'); // The cap fell inside the string.
   };
   const readNumber = (): boolean => {
     SALVAGE_JSON_NUMBER.lastIndex = index;
-    if (!SALVAGE_JSON_NUMBER.exec(text)) return false;
+    const matched = SALVAGE_JSON_NUMBER.exec(text);
+    // Only a lone `-` at the end of the body is a number the cap cut short.
+    if (!matched) return fail(index + 1 >= text.length ? 'cut' : 'invalid');
     const end = SALVAGE_JSON_NUMBER.lastIndex;
     const next = text[end];
-    // "12." or "1e" is a number the cap cut short, not a completed value.
     if (next !== undefined && next !== ',' && next !== '}' && next !== ']'
-      && !SALVAGE_JSON_WHITESPACE.includes(next)) return false;
+      && !SALVAGE_JSON_WHITESPACE.includes(next)) {
+      // "12." or "1e" keeps a number open; "12x" is not a number tail.
+      const tail = text.slice(end);
+      const openNumber = next === '.'
+        ? !/[.eE]/.test(matched[0]) && /^(?:\.[0-9]+(?:[eE][+-]?[0-9]*)?|\.[0-9]*)$/.test(tail)
+        : next === 'e' || next === 'E'
+          ? !/[eE]/.test(matched[0]) && /^[eE][+-]?[0-9]*$/.test(tail)
+          : false;
+      return fail(openNumber ? 'cut' : 'invalid');
+    }
     index = end;
     markComplete(end);
     return true;
@@ -708,12 +737,12 @@ function salvageTruncatedJsonPrefix(text: string): unknown | null {
       const full = ['true', 'false', 'null'].find((candidate) => candidate.startsWith(word));
       if (full) { markComplete(start, full); return true; }
     }
-    return false;
+    return fail('invalid');
   };
 
   function readContainer(opener: string): boolean {
     const closer = opener === '{' ? '}' : ']';
-    if (open.length >= SALVAGE_JSON_MAX_DEPTH) return false;
+    if (open.length >= SALVAGE_JSON_MAX_DEPTH) return fail('invalid');
     open.push(closer);
     index += 1;
     skipWhitespace();
@@ -726,27 +755,28 @@ function salvageTruncatedJsonPrefix(text: string): unknown | null {
         return true;
       }
       if (!first) {
-        if (text[index] !== ',') return false;
+        if (text[index] !== ',') return fail('invalid');
         index += 1;
         skipWhitespace();
-        if (index >= text.length) return false; // The cap fell right after the comma.
+        if (index >= text.length) return fail('cut'); // The cap fell right after the comma.
       }
       if (opener === '{') {
-        if (text[index] !== '"' || !readString()) return false;
+        if (text[index] !== '"') return fail('invalid');
+        if (!readString()) return false;
         skipWhitespace();
-        if (text[index] !== ':') return false;
+        if (text[index] !== ':') return fail(index >= text.length ? 'cut' : 'invalid');
         index += 1;
       }
       if (!readValue()) return false;
       skipWhitespace();
       first = false;
     }
-    return false; // The cap fell inside the container.
+    return fail('cut'); // The cap fell inside the container.
   }
 
   function readValue(): boolean {
     skipWhitespace();
-    if (index >= text.length) return false;
+    if (index >= text.length) return fail('cut');
     const char = text[index];
     if (char === '"') {
       if (!readString()) return false;
@@ -756,7 +786,7 @@ function salvageTruncatedJsonPrefix(text: string): unknown | null {
     if (char === '{' || char === '[') return readContainer(char);
     if (char === '-' || (char >= '0' && char <= '9')) return readNumber();
     if (char === 't' || char === 'f' || char === 'n') return readLiteral();
-    return false;
+    return fail('invalid');
   }
 
   skipWhitespace();
@@ -775,10 +805,10 @@ function salvageTruncatedJsonPrefix(text: string): unknown | null {
   // container the document opened ("{" -> "{}").
   checkpoint = { end: rootIndex + 1, closers: [root === '{' ? '}' : ']'] };
   const closed = readContainer(root);
-  skipWhitespace();
-  // A closed document followed by more text is corruption, not a truncation;
-  // leave it to the raw-text fallback.
-  if (closed && index < text.length) return null;
+  // Only a body the cap cut short may be repaired: a closed document needs no
+  // repair, and a syntax error before the body's end means the input was never
+  // this JSON document — both keep the raw-text fallback.
+  if (closed || failure !== 'cut') return null;
   const repaired = (checkpoint.replacement === undefined
     ? text.slice(0, checkpoint.end)
     : text.slice(0, checkpoint.end) + checkpoint.replacement)
@@ -791,9 +821,9 @@ function salvageTruncatedJsonPrefix(text: string): unknown | null {
   }
 }
 
-/** A repaired prefix: its decoded value plus the documented-envelope projection. */
-function salvageToolResultDocument(text: string): { value: unknown; payload: Record<string, unknown> | null } | null {
-  const value = salvageTruncatedJsonPrefix(text);
+/** A repaired body: its decoded value plus the documented-envelope projection. */
+function salvageToolResultDocument(body: string): { value: unknown; payload: Record<string, unknown> | null } | null {
+  const value = salvageTruncatedJsonPrefix(body);
   if (value === null) return null;
   const record = readPayloadRecord(value);
   return { value, payload: record ? mergeToolResultPayload(record) : null };
@@ -802,9 +832,10 @@ function salvageToolResultDocument(text: string): { value: unknown; payload: Rec
 /** Existing 3D attachments and managed file references retain a usable file entry on Mobile. */
 export function extractPayloadToolResultFiles(text: string): PayloadToolFile[] {
   const direct = parseToolResultPayload(text);
-  // A document the 8 KB persist cap cut short: decode the repaired prefix and
-  // run the same decoded-value checks as the live result.
-  const salvaged = direct ? null : salvageToolResultDocument(text);
+  // A document a platform cap cut short: repair the body in front of its
+  // truncation marker and run the same decoded-value checks as the live result.
+  const truncatedBody = direct === null ? truncatedToolResultBody(text) : null;
+  const salvaged = truncatedBody === null ? null : salvageToolResultDocument(truncatedBody);
   const parsed = direct ?? salvaged?.payload ?? null;
   if (parsed?._xdt_render_image === false) return [];
   const files: PayloadToolFile[] = [];
@@ -826,14 +857,9 @@ export function extractPayloadToolResultFiles(text: string): PayloadToolFile[] {
   // JSON delimiters must not be mistaken for source literals. Keep declaration
   // handling tied to the documented object envelope, as before.
   let content: unknown = parsed ?? salvaged?.value ?? text;
-  let rawText = !parsed && !salvaged;
-  if (rawText) {
-    try { content = JSON.parse(text); rawText = false; } catch { /* Plain-text tool output. */ }
+  if (!parsed && !salvaged) {
+    try { content = JSON.parse(text); } catch { /* Plain-text tool output. */ }
   }
-  // Only the fallback scan reads raw persisted text: a JSON envelope the cap
-  // broke beyond repair. Its `{`/`[`/`,`/`"key":` are data delimiters, not
-  // source syntax (see the source checks).
-  const dataDocument = rawText && /^\s*[{[]/.test(text);
   // Use a stack so deeply nested tool output cannot overflow the call stack.
   const pending: unknown[] = [content];
   while (pending.length) {
@@ -844,7 +870,7 @@ export function extractPayloadToolResultFiles(text: string): PayloadToolFile[] {
       // Strip comments once; repeatedly lexing the prefix of every literal is
       // quadratic for large source-file output. Offsets stay in the original text.
       const sourceContext = withoutSourceComments(value);
-      const sourceRanges = quotedSourceRanges(sourceContext, dataDocument);
+      const sourceRanges = quotedSourceRanges(sourceContext);
       let range = sourceRanges.next();
       let previous: { end: number; source: boolean } | undefined;
       for (let match; (match = urlPattern.exec(value));) {
@@ -866,7 +892,7 @@ export function extractPayloadToolResultFiles(text: string): PayloadToolFile[] {
           && withoutSourceComments(value.slice(previous.end + 1, start - 1)).trim() === ',';
         const source = previous && continuesList
           ? previous.source
-          : looksLikeQuotedSourceLiteral(sourceContext, start, start + url.length, dataDocument);
+          : looksLikeQuotedSourceLiteral(sourceContext, start, start + url.length);
         if (!source) add(url);
         previous = { end: start + url.length, source };
       }
