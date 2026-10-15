@@ -3,7 +3,7 @@
     "en": {
       "addReadOnly": {
         "provenance": {
-          "hash": "14c4bfc6d6a1c6f04208fa71851dce9b1796f7f4b02aa5f53534a9a7a87a4ea5",
+          "hash": "bc257a4bd07a04b16d33c82029a8f1d67c4f56dee2c069e3c7dd1443468b5b1f",
           "locator": "extraDirs.addReadOnly",
           "locatorKeyPath": "extraDirs.addReadOnly",
           "source": "../../../apps/desktop/src/renderer/i18n/locales/en/common.json"
@@ -12,7 +12,7 @@
       },
       "atLimit": {
         "provenance": {
-          "hash": "14c4bfc6d6a1c6f04208fa71851dce9b1796f7f4b02aa5f53534a9a7a87a4ea5",
+          "hash": "bc257a4bd07a04b16d33c82029a8f1d67c4f56dee2c069e3c7dd1443468b5b1f",
           "locator": "extraDirs.atLimit",
           "locatorKeyPath": "extraDirs.atLimit",
           "source": "../../../apps/desktop/src/renderer/i18n/locales/en/common.json"
@@ -21,7 +21,7 @@
       },
       "empty": {
         "provenance": {
-          "hash": "14c4bfc6d6a1c6f04208fa71851dce9b1796f7f4b02aa5f53534a9a7a87a4ea5",
+          "hash": "bc257a4bd07a04b16d33c82029a8f1d67c4f56dee2c069e3c7dd1443468b5b1f",
           "locator": "extraDirs.empty",
           "locatorKeyPath": "extraDirs.empty",
           "source": "../../../apps/desktop/src/renderer/i18n/locales/en/common.json"
@@ -30,7 +30,7 @@
       },
       "libraryReadOnlyLabel": {
         "provenance": {
-          "hash": "14c4bfc6d6a1c6f04208fa71851dce9b1796f7f4b02aa5f53534a9a7a87a4ea5",
+          "hash": "bc257a4bd07a04b16d33c82029a8f1d67c4f56dee2c069e3c7dd1443468b5b1f",
           "locator": "extraDirs.libraryReadOnlyLabel",
           "locatorKeyPath": "extraDirs.libraryReadOnlyLabel",
           "source": "../../../apps/desktop/src/renderer/i18n/locales/en/common.json"
@@ -39,7 +39,7 @@
       },
       "sectionTitle": {
         "provenance": {
-          "hash": "14c4bfc6d6a1c6f04208fa71851dce9b1796f7f4b02aa5f53534a9a7a87a4ea5",
+          "hash": "bc257a4bd07a04b16d33c82029a8f1d67c4f56dee2c069e3c7dd1443468b5b1f",
           "locator": "extraDirs.sectionTitle",
           "locatorKeyPath": "extraDirs.sectionTitle",
           "source": "../../../apps/desktop/src/renderer/i18n/locales/en/common.json"
@@ -48,7 +48,7 @@
       },
       "tooltipCount": {
         "provenance": {
-          "hash": "14c4bfc6d6a1c6f04208fa71851dce9b1796f7f4b02aa5f53534a9a7a87a4ea5",
+          "hash": "bc257a4bd07a04b16d33c82029a8f1d67c4f56dee2c069e3c7dd1443468b5b1f",
           "locator": "extraDirs.tooltipCount",
           "locatorKeyPath": "extraDirs.tooltipCount",
           "source": "../../../apps/desktop/src/renderer/i18n/locales/en/common.json"
@@ -59,7 +59,7 @@
     "zh-CN": {
       "addReadOnly": {
         "provenance": {
-          "hash": "5a6ecb582f8f04a74c6907c703424f0f58db1d264155cf2b27850c66b8eeb792",
+          "hash": "ff950c64ac0b3540e2d3bdfb98dd02bc1d28ac9b57a3e202508d32b7e31c94d5",
           "locator": "extraDirs.addReadOnly",
           "locatorKeyPath": "extraDirs.addReadOnly",
           "source": "../../../apps/desktop/src/renderer/i18n/locales/zh-CN/common.json"
@@ -68,7 +68,7 @@
       },
       "atLimit": {
         "provenance": {
-          "hash": "5a6ecb582f8f04a74c6907c703424f0f58db1d264155cf2b27850c66b8eeb792",
+          "hash": "ff950c64ac0b3540e2d3bdfb98dd02bc1d28ac9b57a3e202508d32b7e31c94d5",
           "locator": "extraDirs.atLimit",
           "locatorKeyPath": "extraDirs.atLimit",
           "source": "../../../apps/desktop/src/renderer/i18n/locales/zh-CN/common.json"
@@ -77,7 +77,7 @@
       },
       "empty": {
         "provenance": {
-          "hash": "5a6ecb582f8f04a74c6907c703424f0f58db1d264155cf2b27850c66b8eeb792",
+          "hash": "ff950c64ac0b3540e2d3bdfb98dd02bc1d28ac9b57a3e202508d32b7e31c94d5",
           "locator": "extraDirs.empty",
           "locatorKeyPath": "extraDirs.empty",
           "source": "../../../apps/desktop/src/renderer/i18n/locales/zh-CN/common.json"
@@ -86,7 +86,7 @@
       },
       "libraryReadOnlyLabel": {
         "provenance": {
-          "hash": "5a6ecb582f8f04a74c6907c703424f0f58db1d264155cf2b27850c66b8eeb792",
+          "hash": "ff950c64ac0b3540e2d3bdfb98dd02bc1d28ac9b57a3e202508d32b7e31c94d5",
           "locator": "extraDirs.libraryReadOnlyLabel",
           "locatorKeyPath": "extraDirs.libraryReadOnlyLabel",
           "source": "../../../apps/desktop/src/renderer/i18n/locales/zh-CN/common.json"
@@ -95,7 +95,7 @@
       },
       "sectionTitle": {
         "provenance": {
-          "hash": "5a6ecb582f8f04a74c6907c703424f0f58db1d264155cf2b27850c66b8eeb792",
+          "hash": "ff950c64ac0b3540e2d3bdfb98dd02bc1d28ac9b57a3e202508d32b7e31c94d5",
           "locator": "extraDirs.sectionTitle",
           "locatorKeyPath": "extraDirs.sectionTitle",
           "source": "../../../apps/desktop/src/renderer/i18n/locales/zh-CN/common.json"
@@ -104,7 +104,7 @@
       },
       "tooltipCount": {
         "provenance": {
-          "hash": "5a6ecb582f8f04a74c6907c703424f0f58db1d264155cf2b27850c66b8eeb792",
+          "hash": "ff950c64ac0b3540e2d3bdfb98dd02bc1d28ac9b57a3e202508d32b7e31c94d5",
           "locator": "extraDirs.tooltipCount",
           "locatorKeyPath": "extraDirs.tooltipCount",
           "source": "../../../apps/desktop/src/renderer/i18n/locales/zh-CN/common.json"
