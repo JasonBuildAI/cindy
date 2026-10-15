@@ -295,13 +295,18 @@ export function nextRun(expr: string, fromMs: number, tz: string): number {
         // shape where the +1h hop stays inside the same wall hour, so `next` — a minute
         // the wall clock has already passed — resolves back to the pre-transition instant.
         // Returning it breaks the strictly-future contract and makes the scheduler re-fire
-        // that minute every tick, so skip to just past the end of this wall hour instead;
+        // that minute every tick. `next` is only the first minute of the list though, and on
+        // this branch every allowed minute is <= w.mi: the ones in the repeated half of the
+        // hour (01:30-01:59, which occur a second time) can still be future, and a wider
+        // minute list must not skip a slot its own subset keeps. Take the earliest of those,
+        // and only when none is left skip to just past the end of this wall hour instead;
         // the outer hour/day branches take it from there, as whole-hour fall-backs already
         // do when the repeated hour offers no slot after the walk position.
         cur =
           wrapped > cur
             ? wrapped
-            : Math.max(cur + 60_000, fromWallClock(w.y, w.mo, w.d, w.h, 59, tz) + 60_000);
+            : (earliestFutureMinuteOfHour(cron.minute, w, cur, tz) ??
+              Math.max(cur + 60_000, fromWallClock(w.y, w.mo, w.d, w.h, 59, tz) + 60_000));
       }
       continue;
     }
@@ -323,6 +328,25 @@ function matchesDay(cron: ParsedCron, w: WallClock): boolean {
 function nextOrWrap(list: CronField, current: number): number {
   for (const x of list) if (x > current) return x;
   return list[0];
+}
+
+// Earliest instant strictly after `cur` at which one of `minutes` reads on the wall clock
+// inside hour w (same y/mo/d/h). Used by nextRun when the wrap target resolved into the past:
+// in a sub-hour fall-back the repeated half of the hour still holds future occurrences.
+function earliestFutureMinuteOfHour(
+  minutes: CronField,
+  w: WallClock,
+  cur: number,
+  tz: string,
+): number | undefined {
+  let best: number | undefined;
+  for (const mi of minutes) {
+    const candidate = fromWallClock(w.y, w.mo, w.d, w.h, mi, tz);
+    if (candidate > cur && (best === undefined || candidate < best)) {
+      best = candidate;
+    }
+  }
+  return best;
 }
 
 // ---------- cronToHuman ----------

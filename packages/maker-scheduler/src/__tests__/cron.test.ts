@@ -290,6 +290,54 @@ describe('nextRun', () => {
     expect(next).toBe(Date.UTC(2026, 3, 4, 15, 15, 0));
   });
 
+  it('sub-hour fall-back (Australia/Lord_Howe): a wider minute list keeps the still-future repeated slot', () => {
+    // Same geometry as the test above, but the minute list wraps (its entries are all <= 50),
+    // so the walk hops a wall hour and used to land past the end of wall hour 01 and then on
+    // the next day — dropping 15:15Z, an instant the very same expression keeps for the
+    // narrower '45 1 * * *' and for a `from` nine minutes later. The repeated half of the hour
+    // is walked in real time, so its later occurrences are still future matches; the NY tests
+    // above pin the same rule (later occurrence of a repeated slot wins while it is future),
+    // and a wall hour is only left once none of its allowed minutes is left in the future.
+    const from = Date.UTC(2026, 3, 4, 14, 50, 30);
+    expect(nextRun('45 1 * * *', from, 'Australia/Lord_Howe'))
+      .toBe(Date.UTC(2026, 3, 4, 15, 15, 0));
+    expect(nextRun('0,45 1 * * *', from, 'Australia/Lord_Howe'))
+      .toBe(Date.UTC(2026, 3, 4, 15, 15, 0));
+    // the walk takes the same slot when it arrives inside the repeated half
+    expect(nextRun('0,45 1 * * *', Date.UTC(2026, 3, 4, 14, 59, 30), 'Australia/Lord_Howe'))
+      .toBe(Date.UTC(2026, 3, 4, 15, 15, 0));
+    // every-10-minutes re-enters the repeated half (15:00Z is 01:30 +10:30) rather than
+    // skipping it; minutes 30-50 exist twice, exactly as whole-hour zones walk them
+    expect(nextRun('*/10 * * * *', from, 'Australia/Lord_Howe'))
+      .toBe(Date.UTC(2026, 3, 4, 15, 0, 0));
+    // minutes that occur once in wall hour 01 still advance to the next day
+    expect(nextRun('0 1 * * *', from, 'Australia/Lord_Howe'))
+      .toBe(Date.UTC(2026, 3, 5, 14, 30, 0));
+  });
+
+  it('sub-hour fall-back (Australia/Lord_Howe): a superset minute list never fires later than its subset', () => {
+    // Widening a minute list only adds matching instants, so for one `from` the superset
+    // cannot move past the subset. Sweep the whole transition day, which includes the
+    // 14:45Z-15:00Z window where the wrap branch runs.
+    const pairs: Array<[string, string]> = [
+      ['45 1 * * *', '0,45 1 * * *'],
+      ['35 1 * * *', '0,35 1 * * *'],
+      ['30 1 * * *', '0,30 1 * * *'],
+      ['15,45 1 * * *', '0,15,45 1 * * *'],
+    ];
+    const dayStart = Date.UTC(2026, 3, 4, 12, 0, 0); // 2026-04-04 23:00 +11:00
+    for (let i = 0; i < 300; i++) {
+      const from = dayStart + i * 60_000 + 13_000;
+      const stamp = new Date(from).toISOString();
+      for (const [subset, superset] of pairs) {
+        const sub = nextRun(subset, from, 'Australia/Lord_Howe');
+        const sup = nextRun(superset, from, 'Australia/Lord_Howe');
+        expect(sub, `${subset} @ ${stamp}`).toBeGreaterThan(from);
+        expect(sup, `${subset} ⊂ ${superset} @ ${stamp}`).toBeLessThanOrEqual(sub);
+      }
+    }
+  });
+
   it('sub-hour fall-back (Australia/Lord_Howe): every minute of the transition day stays strictly future', () => {
     // Sweep the 90-minute wall hour 01 and its neighbours; every query must land after
     // `from`, whichever branch of the walk it takes (the repeated half, the wrap into
