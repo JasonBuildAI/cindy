@@ -116,6 +116,12 @@ describe('mobile tool projection', () => {
         _xdt_model_files: [{ url: 'xdt-file:///tmp/suppressed.pdf' }],
         log: 'x'.repeat(9000),
       }),
+      // 抑制字段排在长字段之后:切点落在 log 里,决定由落库截断提到前缀之前。
+      JSON.stringify({
+        _xdt_model_files: [{ url: 'xdt-file:///tmp/suppressed-late.pdf' }],
+        log: 'z'.repeat(9000),
+        _xdt_render_image: false,
+      }),
       JSON.stringify({ ok: true, stdout: '// fixture: xdt-file:///tmp/example.pdf', log: 'y'.repeat(9000) }),
     ];
     for (const source of sources) {
