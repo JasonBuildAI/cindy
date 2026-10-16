@@ -7,6 +7,7 @@ import {
 
 import {
   TOOL_RESULT_PERSIST_CONTENT_LIMIT,
+  TOOL_RESULT_PERSIST_PLAIN_TRUNCATION_SUFFIX,
   TOOL_RESULT_PERSIST_TRUNCATION_SUFFIX,
   capImportedToolResultContent,
   capToolResultTextForPersist,
@@ -23,7 +24,10 @@ describe('capToolResultTextForPersist', () => {
     const big = 'a'.repeat(TOOL_RESULT_PERSIST_CONTENT_LIMIT + 1);
     const capped = capToolResultTextForPersist(big);
     expect(capped.length).toBeLessThanOrEqual(TOOL_RESULT_PERSIST_CONTENT_LIMIT);
-    expect(capped.endsWith(TOOL_RESULT_PERSIST_TRUNCATION_SUFFIX)).toBe(true);
+    // 非 JSON 正文只带 plain 标记:标准标记是「正文是被截断的 JSON 文档」的
+    // 可修复凭据,滥用它会让读取侧修复出 live 从未产出过的文档(评审 r4337984066)。
+    expect(capped.endsWith(TOOL_RESULT_PERSIST_PLAIN_TRUNCATION_SUFFIX)).toBe(true);
+    expect(capped.endsWith(TOOL_RESULT_PERSIST_TRUNCATION_SUFFIX)).toBe(false);
     expect(capped.startsWith('aaa')).toBe(true);
   });
 
@@ -34,10 +38,10 @@ describe('capToolResultTextForPersist', () => {
   });
 
   it('does not split a surrogate pair at the cut point', () => {
-    const budget = TOOL_RESULT_PERSIST_CONTENT_LIMIT - TOOL_RESULT_PERSIST_TRUNCATION_SUFFIX.length;
+    const budget = TOOL_RESULT_PERSIST_CONTENT_LIMIT - TOOL_RESULT_PERSIST_PLAIN_TRUNCATION_SUFFIX.length;
     const text = `${'x'.repeat(budget - 1)}😀${'y'.repeat(2 * TOOL_RESULT_PERSIST_CONTENT_LIMIT)}`;
     const capped = capToolResultTextForPersist(text);
-    const kept = capped.slice(0, capped.length - TOOL_RESULT_PERSIST_TRUNCATION_SUFFIX.length);
+    const kept = capped.slice(0, capped.length - TOOL_RESULT_PERSIST_PLAIN_TRUNCATION_SUFFIX.length);
     const lastCode = kept.charCodeAt(kept.length - 1);
     expect(lastCode >= 0xd800 && lastCode <= 0xdbff).toBe(false);
     expect(kept).toBe('x'.repeat(budget - 1));
@@ -46,7 +50,7 @@ describe('capToolResultTextForPersist', () => {
   it('respects a custom limit', () => {
     const capped = capToolResultTextForPersist('c'.repeat(300), 100);
     expect(capped.length).toBeLessThanOrEqual(100);
-    expect(capped.endsWith(TOOL_RESULT_PERSIST_TRUNCATION_SUFFIX)).toBe(true);
+    expect(capped.endsWith(TOOL_RESULT_PERSIST_PLAIN_TRUNCATION_SUFFIX)).toBe(true);
   });
 });
 
@@ -157,6 +161,81 @@ describe('capToolResultTextForPersist suppression preservation', () => {
     const capped = capToolResultTextForPersist(full);
     expect(capped.startsWith('{"_xdt_render_image":false,"ok":true,')).toBe(true);
     expect(capped.match(/_xdt_render_image/g)).toHaveLength(1);
+    expect(extractPayloadToolResultFiles(capped)).toEqual([]);
+  });
+
+  it('withholds the repairable marker from a non-JSON body', () => {
+    // 可修复凭据契约(评审 r4337984066):完整正文不是合法 JSON 时,live 的
+    // 判定是 [];截断结果若也带标准标记,读取侧会把保留前缀修复成一份文档,
+    // 复活 live 从未产出过的文件声明。plain 标记不带凭据,读取侧按普通文本
+    // 扫描,与 live 同结论。
+    const broken = JSON.stringify({ _xdt_model_files: [{ url }], log: 'x'.repeat(9000) }) + ' BROKEN';
+    expect(extractPayloadToolResultFiles(broken)).toEqual([]);
+    const capped = capToolResultTextForPersist(broken);
+    expect(capped.endsWith(TOOL_RESULT_PERSIST_PLAIN_TRUNCATION_SUFFIX)).toBe(true);
+    expect(capped.endsWith(TOOL_RESULT_PERSIST_TRUNCATION_SUFFIX)).toBe(false);
+    expect(extractPayloadToolResultFiles(capped)).toEqual([]);
+    // 合法 JSON 文档照旧带标准标记,截断读取走修复后的已解码判定。
+    const document_ = JSON.stringify({ _xdt_model_files: [{ url }], log: 'x'.repeat(9000) });
+    const kept = capToolResultTextForPersist(document_);
+    expect(kept.endsWith(TOOL_RESULT_PERSIST_TRUNCATION_SUFFIX)).toBe(true);
+    expect(extractPayloadToolResultFiles(kept)).toEqual([{ url, title: 'suppressed.pdf' }]);
+  });
+
+  it('preserves a root-level empty declaration that overrides the inner one', () => {
+    // 外层覆盖重登记契约(评审 r4337984071):ok 信封里根级 _xdt_model_files:[]
+    // 覆盖 result 的声明(合并取根级值);根级成员落在切点之后时,截断读取会把
+    // 内层声明当成有效投递——那是 live 从未投递过的文件卡。空数组本身就是受
+    // 合并逻辑支持的减法决定,不能因为尾部缺失就被解释成没有覆盖。
+    const full = JSON.stringify({
+      ok: true,
+      result: { _xdt_model_files: [{ url }], log: 'y'.repeat(9000) },
+      _xdt_model_files: [],
+    });
+    expect(extractPayloadToolResultFiles(full)).toEqual([]);
+    const capped = capToolResultTextForPersist(full);
+    expect(capped.startsWith('{"_xdt_model_files":[],"ok":true,')).toBe(true);
+    expect(capped.match(/"_xdt_model_files"/g)).toHaveLength(2); // 根级一次 + result 内一次
+    expect(extractPayloadToolResultFiles(capped)).toEqual([]);
+    expect(capToolResultTextForPersist(capped)).toBe(capped);
+  });
+
+  it('re-registers an in-prefix root-level override instead of duplicating it', () => {
+    // 根级成员就在保留前缀里时,重登记 = 摘掉旧位 + 插到首位,全文只出现一次。
+    const full = JSON.stringify({
+      _xdt_model_files: [],
+      ok: true,
+      result: { _xdt_model_files: [{ url }], log: 'y'.repeat(9000) },
+    });
+    expect(extractPayloadToolResultFiles(full)).toEqual([]);
+    const capped = capToolResultTextForPersist(full);
+    expect(capped.match(/"_xdt_model_files"/g)).toHaveLength(2);
+    expect(extractPayloadToolResultFiles(capped)).toEqual([]);
+  });
+
+  it('preserves a non-empty root-level override the same way', () => {
+    // 根级非空声明同样是覆盖决定:不重登记的话,截断会把 live 已覆盖掉的内层
+    // 声明暴露出来——另一份 live 从未投递过的文件卡。
+    const other = 'xdt-file:///tmp/other.pdf';
+    const full = JSON.stringify({
+      ok: true,
+      result: { _xdt_model_files: [{ url: other }], log: 'y'.repeat(9000) },
+      _xdt_model_files: [{ url, name: 'Report' }],
+    });
+    expect(extractPayloadToolResultFiles(full)).toEqual([{ url, title: 'Report' }]);
+    const capped = capToolResultTextForPersist(full);
+    expect(extractPayloadToolResultFiles(capped)).toEqual([{ url, title: 'Report' }]);
+  });
+
+  it('preserves a root-level empty media declaration that overrides the inner one', () => {
+    // xdt_media_produced 与 _xdt_model_files 走同一条合并覆盖规则。
+    const full = JSON.stringify({
+      ok: true,
+      result: { xdt_media_produced: [url], log: 'y'.repeat(9000) },
+      xdt_media_produced: [],
+    });
+    expect(extractPayloadToolResultFiles(full)).toEqual([]);
+    const capped = capToolResultTextForPersist(full);
     expect(extractPayloadToolResultFiles(capped)).toEqual([]);
   });
 

@@ -559,4 +559,28 @@ describe('portable plugin results', () => {
     expect(files(cap(ok))).toEqual(files(ok));
     expect(files(cap(ok))).toEqual([{ url, title: 'Report' }]);
   });
+  it('does not salvage a body that carries the non-JSON truncation marker', () => {
+    // 读取侧只把标准标记当作「正文是被截断的 JSON 文档」的证明。非 JSON 正文的
+    // 截断结果带 plain 标记(apps/desktop 的
+    // TOOL_RESULT_PERSIST_PLAIN_TRUNCATION_SUFFIX,此处按字面量复刻),读取侧
+    // 不修前缀,按普通文本扫描——与 live 对同一正文的结论一致(评审 r4337984066)。
+    const url = 'xdt-file:///tmp/report.pdf';
+    const plainSuffix = '\n\n[tool result truncated: stored first 8KB, not a JSON document]';
+    const cap = (text: string) => text.slice(0, 8192 - plainSuffix.length) + plainSuffix;
+    const source = JSON.stringify({ _xdt_model_files: [{ url }], log: 'x'.repeat(9000) }) + ' BROKEN';
+    expect(files(source)).toEqual([]);
+    expect(files(cap(source))).toEqual([]);
+    expect(hasVisibleHistoryResult(cap(source))).toBe(false);
+  });
+  it('lets a root-level empty declaration override the inner one', () => {
+    // 合并取根级值:根级空数组是受合并逻辑支持的减法决定,截断侧重登记它之后,
+    // 截断读取必须与 live 一致地判为非投递(评审 r4337984071)。
+    const url = 'xdt-file:///tmp/report.pdf';
+    const source = JSON.stringify({
+      ok: true,
+      result: { _xdt_model_files: [{ url, name: 'Report' }] },
+      _xdt_model_files: [],
+    });
+    expect(files(source)).toEqual([]);
+  });
 });
