@@ -136,7 +136,7 @@
   "wiring": {
     "chatInputBadgeSites": {
       "provenance": {
-        "hash": "3cdac8b6eb130914243edd6d1aa23fb9c177da869a95ecbea015ac84602aac57",
+        "hash": "28c6fefe76848ad222d6ff23a8c64f6a3e4c7bb0665b3bf3e966a98cac1d5ad3",
         "locator": "ChatInput ExtraDirsButton extraDirsCount 公式次数",
         "source": "../../../apps/desktop/src/renderer/components/new-chat/ChatInput.tsx"
       },
@@ -144,7 +144,7 @@
     },
     "chatInputQuotaSites": {
       "provenance": {
-        "hash": "3cdac8b6eb130914243edd6d1aa23fb9c177da869a95ecbea015ac84602aac57",
+        "hash": "28c6fefe76848ad222d6ff23a8c64f6a3e4c7bb0665b3bf3e966a98cac1d5ad3",
         "locator": "ChatInput 配额公式 countUserExtraDirs(currentExtraDirs) + countUserExtraDirs(currentWritableDirs) 次数",
         "source": "../../../apps/desktop/src/renderer/components/new-chat/ChatInput.tsx"
       },
