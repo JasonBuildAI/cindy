@@ -115,6 +115,51 @@ describe('capToolResultTextForPersist suppression preservation', () => {
     expect(capToolResultTextForPersist(mentionInsideValue)).toBe(plainCut(mentionInsideValue));
   });
 
+  it('keeps suppression when the root object has leading JSON whitespace', () => {
+    // JSON.parse 接受根 `{` 前的空白,截断修复也接受;读取侧同样会解析这份正文,
+    // 所以保留抑制决定时同样要先跳过空白再定位根花括号(评审 r4279033446)。
+    const full = '\n' + JSON.stringify({
+      _xdt_model_files: [{ url }],
+      log: 'x'.repeat(9000),
+      _xdt_render_image: false,
+    });
+    expect(extractPayloadToolResultFiles(full)).toEqual([]);
+    const capped = capToolResultTextForPersist(full);
+    expect(capped.startsWith('\n{"_xdt_render_image":false,')).toBe(true);
+    expect(extractPayloadToolResultFiles(capped)).toEqual([]);
+  });
+
+  it('replaces a preserved root-level render flag so the decision survives', () => {
+    // 外层 true 被内层 false 覆盖(mergeToolResultPayload 的规则),但内层 false 落在
+    // 切点之后;若把 false 插在原有 true 之前,重复键“后者覆盖前者”会让修复后的文档
+    // 读回 true,重开又长出文件卡。提上来的决定必须摘掉根级同名成员(评审 r4279033455)。
+    const full = JSON.stringify({
+      _xdt_render_image: true,
+      ok: true,
+      result: { _xdt_model_files: [{ url }], log: 'y'.repeat(9000), _xdt_render_image: false },
+    });
+    expect(extractPayloadToolResultFiles(full)).toEqual([]);
+    const capped = capToolResultTextForPersist(full);
+    expect(capped.startsWith('{"_xdt_render_image":false,')).toBe(true);
+    expect(capped.match(/_xdt_render_image/g)).toHaveLength(1);
+    expect(extractPayloadToolResultFiles(capped)).toEqual([]);
+    expect(capToolResultTextForPersist(capped)).toBe(capped);
+  });
+
+  it('replaces a trailing root-level render flag without leaving a dangling comma', () => {
+    // 根级同名成员是最后一位时,摘掉它要吞掉前导逗号,修复前缀才是合法 JSON。
+    const full = JSON.stringify({
+      ok: true,
+      result: { _xdt_model_files: [{ url: 'xdt-file:///tmp/report.pdf', name: 'Report' }] },
+      log: 'z'.repeat(9000),
+      _xdt_render_image: false,
+    });
+    const capped = capToolResultTextForPersist(full);
+    expect(capped.startsWith('{"_xdt_render_image":false,"ok":true,')).toBe(true);
+    expect(capped.match(/_xdt_render_image/g)).toHaveLength(1);
+    expect(extractPayloadToolResultFiles(capped)).toEqual([]);
+  });
+
   it('reserves the preserved head from the character budget', () => {
     // 提上来的成员算在同一个上限里,否则截断结果会超过上限、破坏幂等。
     const suppressed = JSON.stringify({ _xdt_render_image: false, log: 'q'.repeat(200) });

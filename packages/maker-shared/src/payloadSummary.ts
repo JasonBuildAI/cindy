@@ -696,9 +696,28 @@ function salvageTruncatedJsonPrefix(text: string): unknown | null {
   const readString = (): boolean => {
     index += 1; // Opening quote.
     while (index < text.length) {
-      if (text[index] === '\\') index += 2;
-      else if (text[index] === '"') { index += 1; return true; }
-      else index += 1;
+      const char = text[index];
+      if (char === '"') { index += 1; return true; }
+      if (char === '\\') {
+        const escape = text[index + 1];
+        // A lone trailing backslash is an escape the cap cut in half.
+        if (escape === undefined) return fail('cut');
+        // Only the JSON escapes are valid: `\q` and friends prove the text was
+        // never this document, so the repaired prefix must not be trusted.
+        if (!'"\\/bfnrtu'.includes(escape)) return fail('invalid');
+        if (escape === 'u') {
+          const hex = text.slice(index + 2, index + 6);
+          if (hex.length < 4) return fail('cut'); // The cap fell inside the escape.
+          if (!/^[0-9a-fA-F]{4}$/.test(hex)) return fail('invalid');
+          index += 6;
+          continue;
+        }
+        index += 2;
+        continue;
+      }
+      // An unescaped control character cannot appear in a JSON string.
+      if (char < ' ') return fail('invalid');
+      index += 1;
     }
     return fail('cut'); // The cap fell inside the string.
   };

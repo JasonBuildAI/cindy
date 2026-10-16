@@ -123,6 +123,25 @@ describe('mobile tool projection', () => {
         _xdt_render_image: false,
       }),
       JSON.stringify({ ok: true, stdout: '// fixture: xdt-file:///tmp/example.pdf', log: 'y'.repeat(9000) }),
+      // 根 `{` 前带 JSON 空白:读取侧的 JSON.parse 接受,保留决定时同样要跳过。
+      '\n' + JSON.stringify({
+        _xdt_model_files: [{ url: 'xdt-file:///tmp/suppressed-lead.pdf' }],
+        log: 'x'.repeat(9000),
+        _xdt_render_image: false,
+      }),
+      // 外层 true 被内层 false 覆盖:提上来的决定必须摘掉根级同名成员。
+      JSON.stringify({
+        _xdt_render_image: true,
+        ok: true,
+        result: {
+          _xdt_model_files: [{ url: 'xdt-file:///tmp/suppressed-outer.pdf' }],
+          log: 'y'.repeat(9000),
+          _xdt_render_image: false,
+        },
+      }),
+      // 跨切点的字符串含非法转义:正文不是被截断的 JSON,不能复活前缀里的声明。
+      '{"_xdt_model_files":[{"url":"xdt-file:///tmp/not-json.pdf"}],"log":"\\q'
+        + 'z'.repeat(9000) + '"}',
     ];
     for (const source of sources) {
       const row = { ...tool('ghost_call:make'), role: 'tool_result', content: capToolResultTextForPersist(source) };

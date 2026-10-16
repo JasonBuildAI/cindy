@@ -541,4 +541,22 @@ describe('portable plugin results', () => {
       expect(files(text), remote).toEqual([{ url, title: 'Report' }]);
     }
   });
+  it('rejects a repair prefix whose long string carries an illegal JSON escape', () => {
+    // 字符串 lexer 也要校验转义:带 JSON 形前缀的破损文本(例如 `"log":"\q…`)
+    // 不是被截断的 JSON,只有 `cut` 才允许修复;否则会从 checkpoint 复活前缀里
+    // 已完成、而 live 原文判非投递的文件声明(评审 r4279033464)。
+    const url = 'xdt-file:///tmp/report.pdf';
+    const suffix = '\n\n[tool result truncated: stored first 8KB]';
+    const cap = (text: string) => text.slice(0, 8192 - suffix.length) + suffix;
+    for (const tail of ['"log":"\\q', '"log":"\\u12', '"log":"\\', '"log":"a\t']) {
+      const source = '{"_xdt_model_files":[{"url":"' + url + '"}],' + tail + 'z'.repeat(9000) + '"}';
+      expect(files(cap(source)), tail).toEqual(files(source));
+      expect(files(cap(source)), tail).toEqual([]);
+      expect(hasVisibleHistoryResult(cap(source)), tail).toBe(false);
+    }
+    // 合法转义不受影响:完成值照常保留。
+    const ok = JSON.stringify({ _xdt_model_files: [{ url, name: 'Report' }], log: '\u0041'.repeat(9000) });
+    expect(files(cap(ok))).toEqual(files(ok));
+    expect(files(cap(ok))).toEqual([{ url, title: 'Report' }]);
+  });
 });
