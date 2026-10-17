@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { extractPayloadToolResultMedia as media, extractPayloadToolResultFiles as files, extractPayloadToolCardIds as cards } from '../payloadSummary.js';
+import {
+  TOOL_RESULT_JSON_TRUNCATION_MARKER,
+  extractPayloadToolResultMedia as media,
+  extractPayloadToolResultFiles as files,
+  extractPayloadToolCardIds as cards,
+} from '../payloadSummary.js';
 import { hasVisibleHistoryResult } from '../historyViewProjection.js';
 const blob = (ext: string) => `cindy-media://blobs/${'a'.repeat(64)}.${ext}`;
 
@@ -394,7 +399,7 @@ describe('portable plugin results', () => {
     // 语法,否则重开任务后全部投递消失(live 可解析时同一份数据会正常提取)。
     const a = 'xdt-file:///tmp/report.pdf';
     const b = 'xdt-file://open?path=%2Ftmp%2Findex.html';
-    const suffix = '\n\n[tool result truncated: stored first 8KB]';
+    const suffix = TOOL_RESULT_JSON_TRUNCATION_MARKER;
     const capped = (text: string) => text.slice(0, 8192 - suffix.length) + suffix;
     const envelope = (extra: Record<string, unknown>) =>
       JSON.stringify({ ok: true, result: { ...extra, log: 'x'.repeat(9000) } });
@@ -420,7 +425,7 @@ describe('portable plugin results', () => {
     // 引号说明引用来自 JSON 字符串内部,两条路径必须得出同样的"非投递"结论。
     const url = 'xdt-file:///tmp/report.pdf';
     const source = JSON.stringify({ ok: true, stdout: `const urls = ["${url}"];`, log: 'x'.repeat(9000) });
-    const suffix = '\n\n[tool result truncated: stored first 8KB]';
+    const suffix = TOOL_RESULT_JSON_TRUNCATION_MARKER;
     expect(files(source)).toEqual([]);
     expect(files(source.slice(0, 8192 - suffix.length) + suffix)).toEqual([]);
     // 已解码的字符串值以 `[` 开头同样按源码过滤,与截断后的结论一致。
@@ -432,7 +437,7 @@ describe('portable plugin results', () => {
     // JSON 字符串里的换行/制表符在原文中是 \n、\t 两个字符。多行源码写法
     // 在 live(已解码)与截断后(原文)也必须一致判非投递。
     const url = 'xdt-file:///tmp/report.pdf';
-    const suffix = '\n\n[tool result truncated: stored first 8KB]';
+    const suffix = TOOL_RESULT_JSON_TRUNCATION_MARKER;
     const cap = (text: string) => text.slice(0, 8192 - suffix.length) + suffix;
     for (const snippet of [
       `const urls = [\n  "${url}"];`,
@@ -458,7 +463,7 @@ describe('portable plugin results', () => {
   it('decodes the repaired prefix instead of scanning raw JSON text', () => {
     // 截断信封先修复成可解析前缀,再走与 live 相同的已解码判定:抑制哨兵、
     // 字符串内注释、单引号源码数组、字面量反斜杠与嵌套非受支持层级都一致。
-    const suffix = '\n\n[tool result truncated: stored first 8KB]';
+    const suffix = TOOL_RESULT_JSON_TRUNCATION_MARKER;
     const cap = (text: string) => text.slice(0, 8192 - suffix.length) + suffix;
     const suppressed = JSON.stringify({
       _xdt_render_image: false,
@@ -490,7 +495,7 @@ describe('portable plugin results', () => {
   });
   it('drops the file URL the persist cap cut in half', () => {
     // 切点落在 URL 中段:半截 URL 指向的文件已物理丢失,不能变成死卡片。
-    const suffix = '\n\n[tool result truncated: stored first 8KB]';
+    const suffix = TOOL_RESULT_JSON_TRUNCATION_MARKER;
     const url = 'xdt-file:///tmp/report-final.pdf';
     const head = '{"ok":true,"note":"';
     const mid = '","result":{"_xdt_model_files":[{"url":"';
@@ -502,26 +507,27 @@ describe('portable plugin results', () => {
     expect(files(source)).toEqual([{ url, title: 'report-final.pdf' }]);
     expect(files(capped)).toEqual([]);
   });
-  it('only repairs a text a platform truncation marker confirms', () => {
-    // 平台截断标记是"复用已解码判定"的唯一凭据:普通文本即使以 `{`/`[` 开头,
-    // 或本身就是破损 JSON,都保持与 live 相同的原文扫描口径。
+  it('only repairs a text behind the validating producer credential', () => {
+    // 可修复凭据只由验证过完整正文的生产者发出(落库 cap 先 JSON.parse)。
+    // 普通文本即使以 `{`/`[` 开头,或本身就是破损 JSON,都保持原文扫描口径。
     const url = 'xdt-file:///tmp/report.pdf';
-    const suffix = '\n\n[tool result truncated: stored first 8KB]';
-    // 根级单引号源码数组:live 判非投递,带不带截断标记都不能升级成卡片。
+    const suffix = TOOL_RESULT_JSON_TRUNCATION_MARKER;
+    // 根级单引号源码数组:live 判非投递,带凭据也不能升级成卡片(文档已闭合,
+    // 修复直接拒绝)。
     expect(files(`['${url}']`)).toEqual([]);
     expect(files(`['${url}']` + suffix)).toEqual([]);
     // 不是平台截断的破损文本:真实 URL 按原文扫描保留(与父版本一致)。
     const broken = '{"message":"oops",broken:' + url;
     expect(files(broken)).toEqual([{ url, title: 'report.pdf' }]);
-    // 带标记、但正文不是 JSON 前缀:同样从原文恢复该 URL,不被修复吞掉。
+    // 带凭据、但正文不是 JSON 前缀:同样从原文恢复该 URL,不被修复吞掉。
     const overlong = broken + ' ' + 'x'.repeat(9000);
     expect(files(overlong.slice(0, 8192 - suffix.length) + suffix)).toEqual(files(overlong));
   });
-  it('treats the truncation marker as the cut boundary of a trailing literal', () => {
+  it('treats the credential marker as the cut boundary of a trailing literal', () => {
     // 8KB 切点恰好落在 `"ok":tru` 中段:字面量的截断边界是标记起点而不是物理
     // EOF,修复后 `ok:true` 仍能展开 result 里的文件声明。
     const url = 'xdt-file:///tmp/report.pdf';
-    const suffix = '\n\n[tool result truncated: stored first 8KB]';
+    const suffix = TOOL_RESULT_JSON_TRUNCATION_MARKER;
     const cut = 8192 - suffix.length;
     const head = '{"result":{"_xdt_model_files":[{"url":"' + url + '","name":"Report"}]},"pad":"';
     const source = head + 'x'.repeat(cut - 10 - head.length) + '","ok":true}';
@@ -530,7 +536,8 @@ describe('portable plugin results', () => {
     expect(files(source)).toEqual([{ url, title: 'Report' }]);
     expect(files(capped)).toEqual(files(source));
     expect(hasVisibleHistoryResult(capped)).toBe(true);
-    // device-link 的两种内容上限标记同样视为截断边界。
+    // device-link 的两种上限只截断未校验的字符串,不是凭据:读取侧保持父版本的
+    // 原文扫描(不修复),因此也不会凭空长出投递。
     for (const remote of ['\n\n[remote content truncated: payload too large]', '\n[device-link truncated]']) {
       const envelope = JSON.stringify({
         ok: true,
@@ -538,7 +545,7 @@ describe('portable plugin results', () => {
         log: 'x'.repeat(9000),
       });
       const text = envelope.slice(0, 8192 - remote.length) + remote;
-      expect(files(text), remote).toEqual([{ url, title: 'Report' }]);
+      expect(files(text), remote).toEqual([]);
     }
   });
   it('rejects a repair prefix whose long string carries an illegal JSON escape', () => {
@@ -546,7 +553,7 @@ describe('portable plugin results', () => {
     // 不是被截断的 JSON,只有 `cut` 才允许修复;否则会从 checkpoint 复活前缀里
     // 已完成、而 live 原文判非投递的文件声明(评审 r4279033464)。
     const url = 'xdt-file:///tmp/report.pdf';
-    const suffix = '\n\n[tool result truncated: stored first 8KB]';
+    const suffix = TOOL_RESULT_JSON_TRUNCATION_MARKER;
     const cap = (text: string) => text.slice(0, 8192 - suffix.length) + suffix;
     for (const tail of ['"log":"\\q', '"log":"\\u12', '"log":"\\', '"log":"a\t']) {
       const source = '{"_xdt_model_files":[{"url":"' + url + '"}],' + tail + 'z'.repeat(9000) + '"}';
@@ -559,18 +566,28 @@ describe('portable plugin results', () => {
     expect(files(cap(ok))).toEqual(files(ok));
     expect(files(cap(ok))).toEqual([{ url, title: 'Report' }]);
   });
-  it('does not salvage a body that carries the non-JSON truncation marker', () => {
-    // 读取侧只把标准标记当作「正文是被截断的 JSON 文档」的证明。非 JSON 正文的
-    // 截断结果带 plain 标记(apps/desktop 的
-    // TOOL_RESULT_PERSIST_PLAIN_TRUNCATION_SUFFIX,此处按字面量复刻),读取侧
-    // 不修前缀,按普通文本扫描——与 live 对同一正文的结论一致(评审 r4337984066)。
+  it('does not salvage a body behind an unvalidated truncation marker', () => {
+    // 中性标记(旧版本对任意超限文本都写它)和 device-link 的两种标记都不带
+    // 「完整正文是合法 JSON」的证明。读取侧只认凭据标记,所以这些文本保持父版本
+    // 的原文扫描——破损正文绝不会因为截断而复活 live 判非投递的文件声明
+    // (评审 r4296349399)。
     const url = 'xdt-file:///tmp/report.pdf';
-    const plainSuffix = '\n\n[tool result truncated: stored first 8KB, not a JSON document]';
-    const cap = (text: string) => text.slice(0, 8192 - plainSuffix.length) + plainSuffix;
-    const source = JSON.stringify({ _xdt_model_files: [{ url }], log: 'x'.repeat(9000) }) + ' BROKEN';
-    expect(files(source)).toEqual([]);
-    expect(files(cap(source))).toEqual([]);
-    expect(hasVisibleHistoryResult(cap(source))).toBe(false);
+    const unvalidated = [
+      '\n\n[tool result truncated: stored first 8KB]',
+      '\n\n[remote content truncated: payload too large]',
+      '\n[device-link truncated]',
+    ];
+    const broken = JSON.stringify({ _xdt_model_files: [{ url }], log: 'x'.repeat(9000) }) + ' BROKEN';
+    expect(files(broken)).toEqual([]);
+    for (const marker of unvalidated) {
+      const cap = (text: string) => text.slice(0, 8192 - marker.length) + marker;
+      expect(files(cap(broken)), marker).toEqual([]);
+      expect(hasVisibleHistoryResult(cap(broken)), marker).toBe(false);
+      // 合法 JSON 但只带中性标记(旧版本落库的行):同样不修复,保持父版本结论。
+      const document_ = JSON.stringify({ _xdt_model_files: [{ url }], log: 'y'.repeat(9000) });
+      expect(files(cap(document_)), marker).toEqual([]);
+      expect(files(document_)).toEqual([{ url, title: 'report.pdf' }]);
+    }
   });
   it('lets a root-level empty declaration override the inner one', () => {
     // 合并取根级值:根级空数组是受合并逻辑支持的减法决定,截断侧重登记它之后,

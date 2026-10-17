@@ -616,25 +616,26 @@ function* quotedSourceRanges(text: string): Generator<{ start: number; end: numb
 }
 
 // A tool_result reaches this module after a platform cap may have replaced its
-// tail with a marker. Only a marked text can be a cut JSON document; text that
-// merely starts with `{`/`[` (prose, source snippets, broken output) keeps the
-// source-literal checks, exactly like the live scan. Keep these literals in
-// sync with their producers:
-//   apps/desktop/src/shared/toolResultPersistCap.ts            (persist cap)
-//   apps/desktop/src/main/device-link/mobileToolProjection.ts  (wire budget)
-//   apps/desktop/src/main/device-link/dispatch.ts              (invoke/push budget)
-const TOOL_RESULT_TRUNCATION_SUFFIXES = [
-  '\n\n[tool result truncated: stored first 8KB]',
-  '\n\n[remote content truncated: payload too large]',
-  '\n[device-link truncated]',
-];
+// tail with a marker. Repairing the kept prefix (see salvageTruncatedJsonPrefix)
+// is only sound when the complete body was a JSON document, and the reader
+// cannot prove that itself: the tail is physically gone. So the repair is gated
+// on a credential only a validating producer writes — today the persist cap,
+// which runs JSON.parse on the full text before choosing this marker.
+//
+// The other caps write different bytes on purpose. The legacy persist notice
+// (same suffix, no JSON claim) was written by older builds for *any* oversized
+// text, and the device-link budgets truncate strings they never validated, so
+// repairing those would resurrect deliveries the live read never produced.
+// Keep the credential bytes in sync with its producer:
+//   apps/desktop/src/shared/toolResultPersistCap.ts (TOOL_RESULT_PERSIST_JSON_TRUNCATION_SUFFIX)
+export const TOOL_RESULT_JSON_TRUNCATION_MARKER =
+  '\n\n[tool result truncated: stored first 8KB; complete result was JSON]';
 
-/** The body a platform cap left in front of its truncation marker, if any. */
-function truncatedToolResultBody(text: string): string | null {
-  for (const suffix of TOOL_RESULT_TRUNCATION_SUFFIXES) {
-    if (text.endsWith(suffix)) return text.slice(0, -suffix.length);
-  }
-  return null;
+/** The kept body in front of the JSON repair credential, if the text carries it. */
+function truncatedJsonDocumentBody(text: string): string | null {
+  return text.endsWith(TOOL_RESULT_JSON_TRUNCATION_MARKER)
+    ? text.slice(0, -TOOL_RESULT_JSON_TRUNCATION_MARKER.length)
+    : null;
 }
 
 // The caps replace the tail of an over-long tool_result with a marker, leaving
@@ -853,7 +854,7 @@ export function extractPayloadToolResultFiles(text: string): PayloadToolFile[] {
   const direct = parseToolResultPayload(text);
   // A document a platform cap cut short: repair the body in front of its
   // truncation marker and run the same decoded-value checks as the live result.
-  const truncatedBody = direct === null ? truncatedToolResultBody(text) : null;
+  const truncatedBody = direct === null ? truncatedJsonDocumentBody(text) : null;
   const salvaged = truncatedBody === null ? null : salvageToolResultDocument(truncatedBody);
   const parsed = direct ?? salvaged?.payload ?? null;
   if (parsed?._xdt_render_image === false) return [];

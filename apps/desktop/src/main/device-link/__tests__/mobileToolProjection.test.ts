@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { extractPayloadToolResultMedia, extractPayloadToolResultFiles } from '@cindy/maker-shared/payload-summary';
-import { capToolResultTextForPersist } from '../../../shared/toolResultPersistCap';
+import {
+  TOOL_RESULT_PERSIST_JSON_TRUNCATION_SUFFIX,
+  capToolResultTextForPersist,
+} from '../../../shared/toolResultPersistCap';
 import {
   MOBILE_HISTORY_PAGE_BYTES, MOBILE_TOOL_RESULT_BYTES,
   projectMobileMessagePage, projectMobileToolMessage, projectMobileToolPush, projectMobileToolResult,
@@ -94,7 +97,7 @@ describe('mobile tool projection', () => {
     // 8KB 切点落在 `"ok":tru` 中段:截断标记是字面量的边界,修复出 `ok:true`
     // 后才能展开 result 里的声明,实时推送与历史分页必须保留同一份清单。
     const url = 'xdt-file:///tmp/report.pdf';
-    const cut = 8 * 1024 - '\n\n[tool result truncated: stored first 8KB]'.length;
+    const cut = 8 * 1024 - TOOL_RESULT_PERSIST_JSON_TRUNCATION_SUFFIX.length;
     const head = '{"result":{"_xdt_model_files":[{"url":"' + url + '","name":"Report"}]},"pad":"';
     const source = head + 'x'.repeat(cut - 10 - head.length)
       + '","ok":true,"tail":"' + 'y'.repeat(200) + '"}';

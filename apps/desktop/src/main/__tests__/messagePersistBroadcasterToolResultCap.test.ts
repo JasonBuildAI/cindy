@@ -48,7 +48,7 @@ import {
 } from '../messagePersistBroadcaster.js';
 import {
   TOOL_RESULT_PERSIST_CONTENT_LIMIT,
-  TOOL_RESULT_PERSIST_PLAIN_TRUNCATION_SUFFIX,
+  TOOL_RESULT_PERSIST_TRUNCATION_SUFFIX,
 } from '../../shared/toolResultPersistCap.js';
 
 const SESSION = 'sess-cap';
@@ -88,7 +88,7 @@ describe('tool_result persistence cap', () => {
 
     const persisted = createdToolResultBodies()[0]?.content as string;
     expect(persisted.length).toBeLessThanOrEqual(TOOL_RESULT_PERSIST_CONTENT_LIMIT);
-    expect(persisted.endsWith(TOOL_RESULT_PERSIST_PLAIN_TRUNCATION_SUFFIX)).toBe(true);
+    expect(persisted.endsWith(TOOL_RESULT_PERSIST_TRUNCATION_SUFFIX)).toBe(true);
     expect(commitMessageMediaRefs).toHaveBeenCalledWith({
       sessionId: SESSION,
       role: 'tool_result',
@@ -142,7 +142,7 @@ describe('tool_result persistence cap', () => {
 
     const persisted = createdToolResultBodies()[0]?.content as string;
     expect(persisted.length).toBeLessThanOrEqual(TOOL_RESULT_PERSIST_CONTENT_LIMIT);
-    expect(persisted.endsWith(TOOL_RESULT_PERSIST_PLAIN_TRUNCATION_SUFFIX)).toBe(true);
+    expect(persisted.endsWith(TOOL_RESULT_PERSIST_TRUNCATION_SUFFIX)).toBe(true);
   });
 
   it('caps orphan flush of a buffered full text whose summary never arrived', async () => {
@@ -153,6 +153,6 @@ describe('tool_result persistence cap', () => {
 
     const persisted = createdToolResultBodies()[0]?.content as string;
     expect(persisted.length).toBeLessThanOrEqual(TOOL_RESULT_PERSIST_CONTENT_LIMIT);
-    expect(persisted.endsWith(TOOL_RESULT_PERSIST_PLAIN_TRUNCATION_SUFFIX)).toBe(true);
+    expect(persisted.endsWith(TOOL_RESULT_PERSIST_TRUNCATION_SUFFIX)).toBe(true);
   });
 });

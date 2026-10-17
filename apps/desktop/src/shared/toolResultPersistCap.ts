@@ -18,13 +18,17 @@
  * 规则,见 mobileToolProjection 的 projectMobileToolResult),live 与重开的结论
  * 才会一致。
  *
- * 可修复凭据契约(评审 r4337984066):标准截断标记是读取侧
- * (payloadSummary 的 salvageTruncatedJsonPrefix)修复保留前缀的凭据——它证明
- * "正文是被截断的 JSON 文档"。非 JSON 正文(哪怕带 JSON 形前缀)一旦也带上该
- * 标记,修复出的文档就是 live 从未产出过的内容:完整正文因不是 JSON 而提取为
- * [],截断后却复活前缀里的文件声明,Mobile/历史页出现虚假 FileChip。因此只有
- * 完整正文通过 JSON.parse 才带标准标记;否则改带 plain 标记,读取侧不认它,
- * 按普通文本走与 live 相同的原文扫描。
+ * 可修复凭据契约(评审 r4337984066、r4296349399):读取侧
+ * (payloadSummary 的 salvageTruncatedJsonPrefix)修复保留前缀的唯一凭据是「正文
+ * 是被截断的**合法 JSON 文档**」。这个事实只有写过完整正文的一方知道,所以凭据必须
+ * 由能验证它的生产者发出:只有 JSON.parse 成功才写带凭据的标记;否则写中性标记
+ * (与旧版本逐字节相同)。旧版本对任意超限文本都写中性标记、device-link 的两种上限
+ * 截断的也是未校验的字符串,因此读取侧不认它们——认了就会修复出 live 从未产出过的
+ * 文档,Mobile/历史页长出虚假 FileChip。
+ *
+ * 同步成本契约(评审 r4296349421):这条路径在 Main 线程同步跑,几十 MB 的正文
+ * 不能无条件 JSON.parse。先做不分配的廉价预筛:只有可能产出投递(文件 URL)或携带
+ * 控制位的正文才需要已解码判定,其余超限正文(日志、文本块)直接按原样截断。
  *
  * 外层覆盖重登记契约(评审 r4337984071):ok:true 信封的合并规则是「根级值覆盖
  * result 内层值」(mergeToolResultPayload 的 {...inner, ...outer})。根级的
@@ -40,16 +44,30 @@
 
 export const TOOL_RESULT_PERSIST_CONTENT_LIMIT = 8 * 1024;
 
+/**
+ * 中性截断提示:不附带任何关于正文形态的断言,与旧版本写下的标记逐字节相同。
+ * 旧版本对**任意**超限文本都写它,所以读取侧不把它当作可修复凭据(见文件头
+ * 「可修复凭据契约」);这一条也可能属于「预筛没命中、来不及验证」的正文。
+ */
 export const TOOL_RESULT_PERSIST_TRUNCATION_SUFFIX =
   '\n\n[tool result truncated: stored first 8KB]';
 
 /**
- * 非 JSON 正文的截断提示:与标准标记视觉同族,但**不带可修复凭据**——读取侧的
- * salvage 只认标准标记,看到这个标记就按普通文本扫描(与 live 对非 JSON 正文
- * 的结论一致)。两个标记必须字节不同,否则凭据无法区分。
+ * 带可修复凭据的截断提示:只有完整正文通过 JSON.parse 才写这一条,读取侧只认它。
+ * 与中性标记的字节必须不同,否则凭据无法区分。
  */
-export const TOOL_RESULT_PERSIST_PLAIN_TRUNCATION_SUFFIX =
-  '\n\n[tool result truncated: stored first 8KB, not a JSON document]';
+export const TOOL_RESULT_PERSIST_JSON_TRUNCATION_SUFFIX =
+  '\n\n[tool result truncated: stored first 8KB; complete result was JSON]';
+
+/**
+ * 廉价预筛:只有出现这些字面量的正文才可能产出文件投递,或被控制位改变投递结论。
+ * 没命中的超限正文(日志、纯文本块)不需要任何已解码判定,连 JSON.parse 都不该做。
+ *
+ * 一次正则扫描而不是逐个 includes:5.9MB 的结构化 JSON 上,JSON.parse 约 46ms
+ * 且要把整棵对象物化,单趟正则约 1.2ms(逐个 includes 反而要扫 5 遍)。
+ */
+const DELIVERY_TOKENS_RE =
+  /xdt-file:\/\/|cindy-media:\/\/blobs\/|_xdt_model_files|xdt_media_produced|_xdt_render_image/;
 
 /** 抑制决定提上来时占用的成员,插入根对象第一个成员的位置。 */
 const SUPPRESSED_RENDER_KEY = '_xdt_render_image';
@@ -131,40 +149,55 @@ type RootMemberRange = {
 };
 
 /**
- * 根对象里已有的某个顶层成员,找不到返回 null。仅在 `JSON.parse(text)` 成功之后
- * 调用,故按合法 JSON 顶层成员扫描即可。重复键取**最后**一出现,与 JSON.parse
- * 「后者覆盖前者」的语义一致,重登记才不会抄到被覆盖掉的旧值。
+ * 根对象里若干顶层成员**全部**出现的区间(一次扫描,只为真正关心的键收集)。仅在
+ * `JSON.parse(text)` 成功之后调用,故按合法 JSON 顶层成员扫描即可。
+ *
+ * 为什么不是「只要最后一个」:JSON.parse 对重复键取后者,所以最后一个出现才是
+ * 生效值;但更早的同名成员仍留在正文里。若只摘掉最后一个,把新决定插到根对象
+ * 开头,修复后的文档会按「后者覆盖前者」读回更早那个旧值,决定又被顶回去
+ * (评审 r4296349410)。因此生效值取最后一段、移除区间取全部出现。
+ *
+ * 一次扫描收全部键:逐个键各扫一遍会让 MB 级正文多走几趟完整遍历。
  */
-function rootMemberRange(text: string, key: string): RootMemberRange | null {
+function rootMemberRangesByKey(
+  text: string,
+  keys: readonly string[],
+): Map<string, RootMemberRange[]> {
+  const rangesByKey = new Map<string, RootMemberRange[]>();
   const brace = leadingJsonWhitespaceEnd(text);
-  if (text[brace] !== '{') return null;
-  const keyLiteral = `"${key}"`;
+  if (text[brace] !== '{') return rangesByKey;
+  const wanted = new Set(keys.map((key) => `"${key}"`));
   let index = brace + 1;
   let separator = -1; // 上一个成员后的逗号:摘掉末位成员时一并吞掉它。
-  let found: RootMemberRange | null = null;
   for (;;) {
     index = skipJsonWhitespace(text, index);
-    if (text[index] === '}') return found;
-    if (text[index] !== '"') return found;
+    if (index >= text.length || text[index] === '}') return rangesByKey;
+    if (text[index] !== '"') return rangesByKey;
     const keyStart = index;
     const keyEnd = skipJsonString(text, index);
-    if (keyEnd === null) return found;
+    if (keyEnd === null) return rangesByKey;
     index = skipJsonWhitespace(text, keyEnd);
-    if (text[index] !== ':') return found;
+    if (text[index] !== ':') return rangesByKey;
     index = skipJsonWhitespace(text, index + 1);
     const valueEnd = skipJsonValue(text, index);
-    if (valueEnd === null) return found;
-    if (text.slice(keyStart, keyEnd) === keyLiteral) {
+    if (valueEnd === null) return rangesByKey;
+    const literal = text.slice(keyStart, keyEnd);
+    if (wanted.has(literal)) {
+      const ranges = rangesByKey.get(literal) ?? [];
       const after = skipJsonWhitespace(text, valueEnd);
       if (text[after] === ',') {
-        found = { keyStart, start: keyStart, end: after + 1, valueEnd }; // 有后继成员:连带尾逗号一起摘。
+        // 有后继成员:连带尾逗号一起摘。
+        ranges.push({ keyStart, start: keyStart, end: after + 1, valueEnd });
       } else {
-        // 末位成员:吞掉前导逗号;后面只可能是 `}`,可以直接返回。
-        return { keyStart, start: separator === -1 ? keyStart : separator, end: valueEnd, valueEnd };
+        // 末位成员:吞掉前导逗号;后面只可能是 `}`,可以直接收尾。
+        ranges.push({ keyStart, start: separator === -1 ? keyStart : separator, end: valueEnd, valueEnd });
+        rangesByKey.set(literal, ranges);
+        return rangesByKey;
       }
+      rangesByKey.set(literal, ranges);
     }
     index = skipJsonWhitespace(text, valueEnd);
-    if (text[index] !== ',') return found;
+    if (text[index] !== ',') return rangesByKey;
     separator = index;
     index += 1;
   }
@@ -175,12 +208,36 @@ function readRecord(value: unknown): Record<string, unknown> | null {
     ? value as Record<string, unknown> : null;
 }
 
+/**
+ * 摘掉若干成员区间。区间可能重叠或相邻:被摘成员的尾逗号可能正是下一个被摘成员
+ * 的前导逗号(重复键紧挨着时),所以先合并重叠区间再一次性拼接,不能按原下标
+ * 逐个 slice(前一次摘除会让后一次的下标错位)。
+ */
+function removeRanges(text: string, ranges: readonly RootMemberRange[]): string {
+  const spans = ranges
+    .filter((range) => range.start < text.length)
+    .map((range) => [range.start, Math.min(range.end, text.length)] as [number, number])
+    .sort((a, b) => a[0] - b[0]);
+  const merged: Array<[number, number]> = [];
+  for (const [start, end] of spans) {
+    const last = merged[merged.length - 1];
+    if (last && start <= last[1]) last[1] = Math.max(last[1], end);
+    else merged.push([start, end]);
+  }
+  let body = text;
+  for (let index = merged.length - 1; index >= 0; index -= 1) {
+    const [start, end] = merged[index];
+    body = body.slice(0, start) + body.slice(end);
+  }
+  return body;
+}
+
 /** 要提到根对象第一个成员位置的重登记成员。 */
 type HoistedMember = {
   /** 插入根 `{` 之后的成员文本(含尾逗号)。 */
   head: string;
-  /** 根级同名成员的既有区间,插入前先摘掉,避免重复键把决定顶回来。 */
-  removal: RootMemberRange | null;
+  /** 根级同名成员的既有区间:插入前全部摘掉,避免重复键把决定顶回来。 */
+  removals: readonly RootMemberRange[];
 };
 
 type SuppressionPlan = {
@@ -200,10 +257,11 @@ type SuppressionPlan = {
  * 上的同一个字段内层 false 覆盖外层 true,以及根级文件声明覆盖内层声明),
  * 由 toolResultPersistCap.test.ts 对照锁定。
  *
- * 根级已有的同名成员必须摘掉:JSON.parse 对重复键取后者,若把新值插在原有的
- * 旧值之前,修复后的文档会读回旧值,重开又长出 live 从未投递的文件卡。
+ * 根级已有的同名成员必须全部摘掉:JSON.parse 对重复键取后者,若把新值插在原有的
+ * 旧值之前,修复后的文档会读回旧值,重开又长出 live 从未投递的文件卡;重复键的
+ * 更早几次出现同样必须摘掉,否则它们仍会在新值之后覆盖回来。
  *
- * @param parsed 完整正文的 JSON.parse 结果(调用方已 try 过,失败时传 undefined)
+ * @param parsed 完整正文的 JSON.parse 结果(调用方已确认解析成功)
  * @param suffixLength 本次截断将使用的标记长度,用于预算校验
  */
 function suppressionPlanFor(
@@ -212,8 +270,6 @@ function suppressionPlanFor(
   parsed: unknown,
   suffixLength: number,
 ): SuppressionPlan | null {
-  // 便宜的前置筛:正文压根没提这些字段就别解析(MB 级 tool_result 很常见)。
-  if (!text.includes(SUPPRESSED_RENDER_KEY) && !FILE_DECLARATION_KEYS.some((key) => text.includes(key))) return null;
   // JSON.parse 接受根 `{` 前的空白,定位真正的根花括号再判形态。
   const brace = leadingJsonWhitespaceEnd(text);
   if (text[brace] !== '{') return null;
@@ -222,10 +278,15 @@ function suppressionPlanFor(
   const inner = outer.ok === true ? readRecord(outer.result) : null;
 
   const members: HoistedMember[] = [];
+  // 一次扫描定位所有根级同名字段:抑制位与两条文件声明共用同一趟遍历。
+  const rangesByKey = rootMemberRangesByKey(text, [SUPPRESSED_RENDER_KEY, ...FILE_DECLARATION_KEYS]);
   // ① 抑制决定:外层 false,或 ok 信封内层 false(内层 false 覆盖外层 true,
   // 见 mergeToolResultPayload 末尾对 _xdt_render_image 的重断言)。
   if (outer[SUPPRESSED_RENDER_KEY] === false || inner?.[SUPPRESSED_RENDER_KEY] === false) {
-    members.push({ head: SUPPRESSED_RENDER_HEAD, removal: rootMemberRange(text, SUPPRESSED_RENDER_KEY) });
+    members.push({
+      head: SUPPRESSED_RENDER_HEAD,
+      removals: rangesByKey.get(`"${SUPPRESSED_RENDER_KEY}"`) ?? [],
+    });
   }
   // ② 外层文件声明覆盖:根级与 result 内层同键时,合并取根级值;根级成员落在
   // 切点之后,截断读取会把内层声明当成有效投递(根级空数组即"无文件"的减法
@@ -233,9 +294,13 @@ function suppressionPlanFor(
   if (inner) {
     for (const key of FILE_DECLARATION_KEYS) {
       if (!(key in outer) || !(key in inner)) continue;
-      const range = rootMemberRange(text, key);
-      if (!range) continue;
-      members.push({ head: `${text.slice(range.keyStart, range.valueEnd)},`, removal: range });
+      const ranges = rangesByKey.get(`"${key}"`) ?? [];
+      const effective = ranges[ranges.length - 1];
+      if (!effective) continue;
+      members.push({
+        head: `${text.slice(effective.keyStart, effective.valueEnd)},`,
+        removals: ranges,
+      });
     }
   }
   if (members.length === 0) return null;
@@ -254,40 +319,33 @@ export function capToolResultTextForPersist(
   limit = TOOL_RESULT_PERSIST_CONTENT_LIMIT,
 ): string {
   if (text.length <= limit) return text;
-  // 完整正文先过一遍 JSON.parse:重登记计划要读已解码值;且只有合法 JSON 文档
-  // 才配带可修复凭据(标准标记)——非 JSON 正文带标准标记会让读取侧修复出 live
-  // 从未产出过的文档(见文件头「可修复凭据契约」)。
+  // 廉价预筛先跑:只有可能产出投递、或携带控制位的正文才需要已解码判定;其余
+  // (日志、纯文本块,几十 MB 的也常见)不该在 Main 线程上被 JSON.parse 物化一次
+  // (见文件头「同步成本契约」)。预筛没命中就没有决定可读,也不带可修复凭据。
   let parsed: unknown;
   let jsonDocument = false;
-  try {
-    parsed = JSON.parse(text);
-    jsonDocument = true;
-  } catch {
-    // 非 JSON 正文:没有可解码的判定,也不带可修复凭据。
+  if (DELIVERY_TOKENS_RE.test(text)) {
+    try {
+      parsed = JSON.parse(text);
+      jsonDocument = true;
+    } catch {
+      // 非 JSON 正文:没有可解码的判定,也不带可修复凭据。
+    }
   }
   const suffix = jsonDocument
-    ? TOOL_RESULT_PERSIST_TRUNCATION_SUFFIX
-    : TOOL_RESULT_PERSIST_PLAIN_TRUNCATION_SUFFIX;
-  const plan = suppressionPlanFor(text, limit, parsed, suffix.length);
+    ? TOOL_RESULT_PERSIST_JSON_TRUNCATION_SUFFIX
+    : TOOL_RESULT_PERSIST_TRUNCATION_SUFFIX;
+  const plan = jsonDocument ? suppressionPlanFor(text, limit, parsed, suffix.length) : null;
   const heads = plan ? plan.members.map((member) => member.head).join('') : '';
   let cut = Math.max(0, limit - suffix.length - heads.length);
   const lastKept = text.charCodeAt(cut - 1);
   if (cut > 0 && lastKept >= 0xd800 && lastKept <= 0xdbff) cut -= 1;
-  let retained = text.slice(0, cut);
+  const retained = text.slice(0, cut);
   // 重登记成员插在根对象的左花括号之后(含根花括号前的空白):保留下来的仍是同一份
   // 文档的 JSON 前缀,截断修复只按前缀解码,不会因为多这些成员而改变其它判定。
   if (plan && heads.length > 0 && cut > plan.brace + 1) {
-    let body = retained;
-    const removals = plan.members
-      .map((member) => member.removal)
-      .filter((range): range is RootMemberRange => range !== null)
-      .sort((a, b) => b.start - a.start); // 降序摘除,保住彼此的下标。
-    for (const removal of removals) {
-      if (removal.start < body.length) {
-        body = body.slice(0, removal.start) + body.slice(Math.min(removal.end, body.length));
-      }
-    }
-    retained = `${text.slice(0, plan.brace + 1)}${heads}${body.slice(plan.brace + 1)}`;
+    const body = removeRanges(retained, plan.members.flatMap((member) => member.removals));
+    return `${text.slice(0, plan.brace + 1)}${heads}${body.slice(plan.brace + 1)}${suffix}`;
   }
   return `${retained}${suffix}`;
 }
